@@ -16,16 +16,27 @@ This new system replaces an older one that was based on PHP and a MySQL database
 This will grab all the tiles that are listed as "claimed" in the old database and copy them down to the `tiles` directory.
 
 ```
-.\download_tiles.py --server https://pocketfiche.cwandt.com --output docs/tiles
+.\download_tiles.py --server https://pocketfiche.cwandt.com --output parcels/
 ```
 
 ## 2. Create map.json
+
+[Temporarily out of service]
 
 This will create a `map.json` file that can be used by the client app to know which tiles to request from the server. 
 
 ```
 python create-map.py --tiles-dir docs/tiles --output docs/map.json
 ```
+
+## 2.5 Build world
+
+This will create a `world` directory that contains all the tiles in a single file.
+
+```
+python build_world.py --parcels-dir parcels --output-dir docs/world/
+```
+
 ## 3. Optimize PNG files for space (optional)
 
 
@@ -90,6 +101,8 @@ We will later add an overlay layer with a big circle to show the claimable radiu
 ## Coodinates
 
 We are using the simple coordinate CRS (L.CRS.Simple) so that one map unit corresponds to one pixel at zoom level 0. 
+
+IMPORTANT: Leaflet's CRS.Simple is a bit counterintuitive. The origin is at the bottom left corner of the map, and y increases as you go up. This is the opposite of what you might expect. 
 
 The middle of the "world" in the the intersecttion of the center 2x2 of parcels is....
 

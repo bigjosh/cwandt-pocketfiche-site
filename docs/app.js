@@ -256,153 +256,84 @@
   
   map.addControl(new MicrometerScale({ position: 'bottomright', imperial: false }));
 
-  // ---- Load map.json and render ----
-  fetch(MAP_JSON_URL, { cache: 'no-cache' })
-    .then((r) => {
-      if (!r.ok) throw new Error(`Failed to load ${MAP_JSON_URL}: ${r.status}`);
-      console.log("map.json loaded");
-      return r.json();
-    })
-    .then((mapData) => {
-      // mapData is expected to be an object: { "H4": { claimed: true|false }, ... }
-      console.log("mapData", mapData);
-      // Dictionary mapping parcel keys to claimed status (true/false)
-      const claimedDict = Object.fromEntries(
-        Object.entries(mapData)
-          .map(([k, v]) => [k, v && v.claimed === true])
-      );
-
-      // Custom tile layer that maps Leaflet tile coords -> our grid keys
-      // and also uses a custom getTileUrl function to return a locally generated placeholder image for unclaimed tiles to avoid unnecessary network requests.
-      const ParcelsTileLayer = L.TileLayer.extend({
-        getTileUrl: function (coords) {
-          console.log("coords", coords);
-
-          //return makeDebugTileDataURL(  coords , "out of range");
-
-          // debug
-          // return makeDebugTileDataURL(  coords , "debug");
-
-          // Out-of-range -> sky-blue placeholder
-          // if (row < 0 || row >= ROWS || col < 0 || col >= COLS) {
-          //   return makeDebugTileDataURL(  coords , "out of range");
-          // }
-
-          console.log("making tileUrl");
+  const DebugTileLayer = L.TileLayer.extend({
+    getTileUrl: function (coords) {
+    
+      // debug
+      return makeDebugTileDataURL(  coords , "debug");
+    },
+  });
 
 
-          // Convert the coords (y,x) into a parcel row and col
-          // remember that each tile is 500x500 pixels
+  // Debug tile layer shows coords in inside each tile
+  const parcels = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' , {       
+      tileSize: TILE_SIZE,  
+      bounds: worldBounds,
+      minNativeZoom: 0,
+      maxNativeZoom: 6,
+      minZoom: -6, 
+      maxZoom: 10,        
+      noWrap: true,
+      updateWhenIdle: true,
 
+  }).addTo(map);
 
-          // col 0 is at x=0
-          const col = coords.x;
+  // This is the main tile layer that shows the parcels. It will intionally fail to load tiles that are not found.
+  // I think a 404 is faster than returning a 1px placeholder tile?
 
-          // y starts at 0 on the bottom and goes negative as we go up. 
-          const row = -coords.y 
+  const parcelsLayer = new L.TileLayer(  'world/{z}/{x}/{y}.png' , {       
+    tileSize: TILE_SIZE,  
+    bounds: worldBounds,
+    minNativeZoom: 0,
+    maxNativeZoom: 6,
+    minZoom: -6, 
+    maxZoom: 10,        
+    noWrap: true,
+    updateWhenIdle: true,
+  }).addTo(map);      
 
-          // now convert the row to letters...
-          const rowLetters = indexToLetters(row);           
+  // OMG, the whole problem was that you MUST supply a URL tremplate here EVEN THOUGH YOU ARE NOT ACTUALLY USING IT!
+  // SO bad. so many hours wasted on this. 
 
-          // Keys for map.json are 1-based (A1 top-left), but filenames use 0-based numeric.
-          const parcelName = `${rowLetters}${col}`; // 1-based for presence check
+  // const parcels = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' ,{
+  //   tileSize: TILE_SIZE,
 
-          console.log("row", row, "col", col, "parcelName", parcelName);
+  //   // So I am only going to provide tiles at the native resolution (zoom 0) and let Leaflet do any other scaling up or down
+  //   // locally. minNativeZoom must match or be lower than the map's minZoom to enable auto-scaling.
+  //   minNativeZoom: 0,
+  //   maxNativeZoom: 6,
+  //   minZoom: -4, 
+  //   maxZoom: 10,        
+  //   noWrap: true,
+  //   updateWhenIdle: true,
+  // }).addTo(map);
 
-          if (parcelName in claimedDict) {
+  // // Lets test with a static tile
+  // const parcels = new L.TileLayer( '500x500-test.png', {
 
-            if (claimedDict[parcelName]) {
-              const tileUrl = `${TILE_DIR}/tile-${parcelName}.png`; // 0-based for actual file path
-              return tileUrl;
-            }
+  //   tileSize: TILE_SIZE,
 
-            return UNCLAIMED_TILE_URL;
-          }
+  //   // So I am only going to provide tiles at the native resolution (zoom 0) and let Leaflet do any other scaling up or down
+  //   // locally. minNativeZoom must match or be lower than the map's minZoom to enable auto-scaling.
+  //   minNativeZoom: 0,
+  //   maxNativeZoom: 0,
+  //   minZoom: -2, 
+  //   maxZoom: 2,
+  //   noWrap: true,
+  //   updateWhenIdle: true,
+  // }).addTo(map);
 
-          // If we didn't find a tile, return the sky blue placeholder
-          return NONEXISTANT_TILE_URL;
-        },
-      });
+  // For now, show the whole world at startup
+  // todo: zoom into 2x2 center parcels
+  //map.fitBounds(worldBounds, { padding: [80, 80] });
 
-      // Custom tile layer that maps Leaflet tile coords -> our grid keys
-      // and also uses a custom getTileUrl function to return a locally generated placeholder image for unclaimed tiles to avoid unnecessary network requests.
-      const DebugTileLayer = L.TileLayer.extend({
-        getTileUrl: function (coords) {
-          console.log("coords", coords);
-        
-          // debug
-          return makeDebugTileDataURL(  coords , "debug");
-
-          // If we didn't find a tile, return the sky blue placeholder
-          return NONEXISTANT_TILE_URL;
-        },
-      });
-
-
-      // Debug tile layer shows coords in inside each tile
-      const parcels = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' , {       
-          tileSize: TILE_SIZE,  
-          bounds: worldBounds,
-          minNativeZoom: 0,
-          maxNativeZoom: 6,
-          minZoom: -6, 
-          maxZoom: 10,        
-          noWrap: true,
-          updateWhenIdle: true,
-
-      }).addTo(map);
-
-      // OMG, the whole problem was that you MUST supply a URL tremplate here EVEN THOUGH YOU ARE NOT ACTUALLY USING IT!
-      // SO bad. so many hours wasted on this. 
-
-      // const parcels = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' ,{
-      //   tileSize: TILE_SIZE,
-
-      //   // So I am only going to provide tiles at the native resolution (zoom 0) and let Leaflet do any other scaling up or down
-      //   // locally. minNativeZoom must match or be lower than the map's minZoom to enable auto-scaling.
-      //   minNativeZoom: 0,
-      //   maxNativeZoom: 6,
-      //   minZoom: -4, 
-      //   maxZoom: 10,        
-      //   noWrap: true,
-      //   updateWhenIdle: true,
-      // }).addTo(map);
-
-
-
-
-      // // Lets test with a static tile
-      // const parcels = new L.TileLayer( '500x500-test.png', {
-
-      //   tileSize: TILE_SIZE,
-
-      //   // So I am only going to provide tiles at the native resolution (zoom 0) and let Leaflet do any other scaling up or down
-      //   // locally. minNativeZoom must match or be lower than the map's minZoom to enable auto-scaling.
-      //   minNativeZoom: 0,
-      //   maxNativeZoom: 0,
-      //   minZoom: -2, 
-      //   maxZoom: 2,
-      //   noWrap: true,
-      //   updateWhenIdle: true,
-      // }).addTo(map);
-
-      // For now, show the whole world at startup
-      // todo: zoom into 2x2 center parcels
-      //map.fitBounds(worldBounds, { padding: [80, 80] });
-
-      // Optional: click to log the tile coordinate under the cursor
-      map.on('click', (e) => {
-        const col = Math.floor(e.latlng.lng / TILE_SIZE);
-        const row = Math.floor(e.latlng.lat / TILE_SIZE);
-        if (row >= 0 && row < ROWS && col >= 0 && col < COLS) {
-          const coord = `${indexToLetters(row)}${col + 1}`;
-          console.log('Clicked tile:', coord, { row, col });
-        }
-      });
-    })
-    .catch((err) => {
-      console.error(err);
-      // If map.json is missing, still show the full grid area for reference
-      //map.fitBounds(worldBounds, { padding: [80, 80] });
-    });
+  // Optional: click to log the tile coordinate under the cursor
+  map.on('click', (e) => {
+    const col = Math.floor(e.latlng.lng / TILE_SIZE);
+    const row = Math.floor(e.latlng.lat / TILE_SIZE);
+    if (row >= 0 && row < ROWS && col >= 0 && col < COLS) {
+      const coord = `${indexToLetters(row)}${col + 1}`;
+      console.log('Clicked tile:', coord, { row, col });
+    }
+  });
 })();

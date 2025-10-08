@@ -15,6 +15,7 @@ Usage:
 import argparse
 import math
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Dict, Tuple, Optional
@@ -283,6 +284,13 @@ def main() -> int:
     
     print(f"\n✅ Loaded {len(parcels)} parcels")
     print()
+    
+    # Clean output directory
+    if output_dir.exists():
+        print(f"🧹 Cleaning old files from {output_dir.absolute()}...")
+        shutil.rmtree(output_dir)
+        print("✅ Old files removed")
+        print()
     
     # Build pyramid
     output_dir.mkdir(parents=True, exist_ok=True)
