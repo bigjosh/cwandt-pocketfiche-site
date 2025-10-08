@@ -126,8 +126,8 @@
   // ---- Map init ----
   const map = L.map('map', {
     crs: L.CRS.Simple,
-    minZoom: -2, 
-    maxZoom: 2,
+    minZoom: -5, 
+    maxZoom: 5,
     zoomControl: true,
     attributionControl: false
     // Stick with SVG so that our circles will look sharp at all zoom sizes
@@ -141,36 +141,90 @@
   // Set initial view to center of grid
   map.setView([HEIGHT / 2, WIDTH / 2], 0);
 
-  // // Feelling debuggy - might delete
-  // // Passive status control: zoom + center (live)
-  // const StatusControl = L.Control.extend({
-  //   options: { position: 'bottomleft', digits: 5, zoomDigits: 2 },
-  //   onAdd(map) {
-  //     const el = L.DomUtil.create('div', 'leaflet-bar');
-  //     el.style.padding = '4px 8px';
-  //     el.style.font = '12px monospace';
-  //     el.style.pointerEvents = 'none';
+  // Feelling debuggy - might delete
+  // Passive status control: zoom + center (live)
+  const StatusControl = L.Control.extend({
+    options: { position: 'bottomleft', digits: 5, zoomDigits: 2 },
+    onAdd(map) {
+      const el = L.DomUtil.create('div', 'leaflet-bar');
+      el.style.padding = '4px 8px';
+      el.style.font = '12px monospace';
+      el.style.pointerEvents = 'none';
+      el.style.backgroundColor = '#c6f4d6';
 
-  //     const update = () => {
-  //       const z = map.getZoom();
-  //       const c = map.getCenter();
-  //       el.textContent = `z ${z.toFixed(this.options.zoomDigits)}  lat ${c.lat.toFixed(this.options.digits)}  lng ${c.lng.toFixed(this.options.digits)}`;
-  //     };
+      const update = () => {
+        const z = map.getZoom();
+        const c = map.getCenter();
+        el.textContent = `z ${z.toFixed(this.options.zoomDigits)}  center ( y=${c.lat.toFixed(this.options.digits)} , x=${c.lng.toFixed(this.options.digits)} )`;
+      };
 
-  //     map.on('move zoom', update);
-  //     update();              // initial render
-  //     this._off = () => map.off('move zoom', update);
-  //     return el;
-  //   },
-  //   onRemove() { this._off && this._off(); }
-  // });
+      map.on('move zoom', update);
+      update();              // initial render
+      this._off = () => map.off('move zoom', update);
+      return el;
+    },
+    onRemove() { this._off && this._off(); }
+  });
 
-  // // add it
-  // map.addControl(new StatusControl({ position: 'bottomleft' }));
+  // add it
+  map.addControl(new StatusControl({ position: 'bottomleft' }));
 
-  // And a little scale bar
-  // TODO: Make this have accurate units. 
-  L.control.scale({ position: 'bottomright' }).addTo(map);
+  // Custom scale bar that shows micrometers (µm) at zoom 0
+  // At zoom 0: 1 pixel = 1 µm, doubling every zoom level
+  // TODO: THIS IS WRONG. FIGURE OUT WHY.
+  const MicrometerScale = L.Control.Scale.extend({
+    _updateMetric: function (maxMeters) {
+      // Get current zoom level - each zoom level doubles the scale
+      const zoom = this._map.getZoom();
+      // At zoom 0, 1 pixel = 1 µm. At zoom 1, 1 pixel = 0.5 µm, etc.
+      const micrometersPerPixel = 1 / Math.pow(2, zoom);
+      
+      // maxMeters from Leaflet represents the pixel width we have to work with
+      // Convert to micrometers
+      const maxMicrometers = maxMeters * micrometersPerPixel;
+      
+      // Choose appropriate scale bar size and unit
+      const scales = [
+        { value: 1, label: '1 µm' },
+        { value: 2, label: '2 µm' },
+        { value: 5, label: '5 µm' },
+        { value: 10, label: '10 µm' },
+        { value: 20, label: '20 µm' },
+        { value: 50, label: '50 µm' },
+        { value: 100, label: '100 µm' },
+        { value: 200, label: '200 µm' },
+        { value: 500, label: '500 µm' },
+        { value: 1000, label: '1 mm' },
+        { value: 2000, label: '2 mm' },
+        { value: 5000, label: '5 mm' },
+        { value: 10000, label: '1 cm' },
+        { value: 20000, label: '2 cm' },
+        { value: 50000, label: '5 cm' },
+        { value: 100000, label: '10 cm' },
+        { value: 200000, label: '20 cm' },
+        { value: 500000, label: '50 cm' },
+        { value: 1000000, label: '1 m' }
+      ];
+      
+      // Find the largest scale that fits
+      let scale = scales[0];
+      for (let i = 0; i < scales.length; i++) {
+        if (scales[i].value <= maxMicrometers) {
+          scale = scales[i];
+        } else {
+          break;
+        }
+      }
+      
+      // Calculate the width in pixels for this scale
+      const widthInPixels = scale.value / micrometersPerPixel;
+      
+      // Update the scale bar
+      this._updateScale(this._mScale, scale.label, widthInPixels / maxMeters);
+    }
+  });
+  
+  map.addControl(new MicrometerScale({ position: 'bottomright', imperial: false }));
 
   // ---- Load map.json and render ----
   fetch(MAP_JSON_URL, { cache: 'no-cache' })
@@ -196,57 +250,80 @@
         getTileUrl: function (coords) {
           console.log("coords", coords);
 
+          //return makeDebugTileDataURL(  coords , "out of range");
+
           // debug
-          return makeDebugTileDataURL(  coords , "debug");
+          // return makeDebugTileDataURL(  coords , "debug");
 
           // Out-of-range -> sky-blue placeholder
-          if (row < 0 || row >= ROWS || col < 0 || col >= COLS) {
-            return SKY_BLUE_URL;
-          }
+          // if (row < 0 || row >= ROWS || col < 0 || col >= COLS) {
+          //   return makeDebugTileDataURL(  coords , "out of range");
+          // }
 
           console.log("making tileUrl");
 
+
+          // Convert the coords (y,x) into a parcel row and col
+          // remember that each tile is 500x500 pixels
+
+
+          // col 0 is at x=0
+          const col = coords.x;
+
+          // y starts at 0 on the bottom and goes negative as we go up. 
+          const row = -coords.y 
+
+          // now convert the row to letters...
+          const rowLetters = indexToLetters(row);           
+
           // Keys for map.json are 1-based (A1 top-left), but filenames use 0-based numeric.
-//          const letters = indexToLetters(row);
-//          const key = `${letters}${col + 1}`; // 1-based for presence check
-          console.log("key", key);
-          if (claimedSet.has(key)) {
-            const tileUrl = `${TILE_DIR}/tile-${letters}${col + 1}.png`; // 0-based for actual file path
-            console.log("returning tileUrl", tileUrl);
+          const parcelName = `${rowLetters}${col}`; // 1-based for presence check
+
+          console.log("row", row, "col", col, "parcelName", parcelName);
+
+          if (claimedSet.has(parcelName)) {
+
+            const tileUrl = `${TILE_DIR}/tile-${parcelName}.png`; // 0-based for actual file path
             return tileUrl;
           }
 
           // If we didn't find a tile, return the sky blue placeholder
-          console.log("returning SKY_BLUE_URL");
-          return SKY_BLUE_URL;
+          return "500x500-test.png";
         },
       });
 
-      // const parcels = new ParcelsTileLayer({
-      //   tileSize: TILE_SIZE,
 
-      //   // So I am only going to provide tiles at the native resolution (zoom 0) and let Leaflet do any other scaling up or down
-      //   // locally. minNativeZoom must match or be lower than the map's minZoom to enable auto-scaling.
-      //   minNativeZoom: -2,
-      //   maxNativeZoom: 0,
-      //   noWrap: true,
-      //   updateWhenIdle: true,
-      // }).addTo(map);
+      // OMG, the whole problem was that you MUST supply a URL tremplate here EVEN THOUGH YOU ARE NOT ACTUALLY USING IT!
+      // SO bad. so many hours wasted on this. 
 
-      // Lets test with a static tile
-      const parcels = new L.TileLayer( '500x500-test.png', {
-
+      const parcels = new ParcelsTileLayer(  '500x500-test.png' ,{
         tileSize: TILE_SIZE,
 
         // So I am only going to provide tiles at the native resolution (zoom 0) and let Leaflet do any other scaling up or down
         // locally. minNativeZoom must match or be lower than the map's minZoom to enable auto-scaling.
         minNativeZoom: 0,
         maxNativeZoom: 0,
-        minZoom: -2, 
-        maxZoom: 2,
+        minZoom: -5, 
+        maxZoom: 5,        
         noWrap: true,
         updateWhenIdle: true,
       }).addTo(map);
+
+
+      // // Lets test with a static tile
+      // const parcels = new L.TileLayer( '500x500-test.png', {
+
+      //   tileSize: TILE_SIZE,
+
+      //   // So I am only going to provide tiles at the native resolution (zoom 0) and let Leaflet do any other scaling up or down
+      //   // locally. minNativeZoom must match or be lower than the map's minZoom to enable auto-scaling.
+      //   minNativeZoom: 0,
+      //   maxNativeZoom: 0,
+      //   minZoom: -2, 
+      //   maxZoom: 2,
+      //   noWrap: true,
+      //   updateWhenIdle: true,
+      // }).addTo(map);
 
       // For now, show the whole world at startup
       // todo: zoom into 2x2 center parcels
