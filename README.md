@@ -111,6 +111,64 @@ Remeber that this is (y,x) not (x,y)! And also note that negative y is down.
 
 ### Zooming
 
+We want zoom level 0 to include the full grid of 38x38 parcles in a single 500x500 pixel tile. We also want there to be a zoom level that matches 1:1 with the actual parcel size so we get pixel-perfect view with no scaling artifacts. Zoom levels are powers of 2, so we need to find what size to make the grid at zoom 0 there is a zoom level that ends up being 1:1 with the actual parcel size. 
+
+To figure this out, let start use the formula....
+
+x=the zoom level with 1:1 pixels, so tile size is 500x500 in parcel pixels
+
+so if we zoom out 1 level to a+1, the tile size will be 1000x1000 in parcel pixels. 
+
+p(y,x)=the number of parcel pixels per tile at zoom level y, given zoom level x is level where tile size is 500x500 in parcel pixels
+
+p(y,x) = 500 * (2 ^ (x-y))
+
+The full world is 38 parcels * 500 pixels per parcel = 19000 parcel pixels. 
+
+we want to full world of 19000 parcel pixels to fit in one 500 pixel tile. 
+
+so we want to solve for x in `p(0,x) >=  19000` so that at zoom 0 the whole world fits into one tile. 
+
+`500 * ( 2 ^ (x-0)) >= 19000`
+
+`2 ^ (x-0) >= 19000/500`
+
+`x-0 >= log2(38)`
+
+`x >= log2(38)`
+
+`x >= 5.8`
+
+`x = 6`
+
+Let's check our work. 
+
+| Zoom | Parcel pixels per tile |
+| - | - |
+| 6 | 500 |
+| 5 | 1000 |
+| 4 | 2000 |
+| 3 | 4000 |
+| 2 | 8000 |
+| 1 | 16000 |
+| 0 | 32000 |   
+
+
+
+
+tile size at zoom y = 500 * (2 ^ (y-x))
+
+we need the tiles size to be greater than 500*38 = 19000 pixels in each direction at zoom 0. 
+
+solve for 
+
+
+
+we want 
+
+
+with zoom level X is 500x500 = 500x500 
+
 We only have the actuial tile files on the server, so we will let the browser do all the scaling in both directions.
 
 THIS WAS VERY HARD TO FIGURE OUT SO BE CAREFUL CHANGING IT!

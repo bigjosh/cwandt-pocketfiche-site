@@ -108,18 +108,35 @@
   }
 
 
-    // Local sky-blue tile (very light) as a data URL SVG, sized to TILE_SIZE
+    // Local sky-blue tile (very light) as a PNG data URL, sized to TILE_SIZE with 1px white border
     const UNCLAIMED_TILE_URL = (() => {
       console.log("Making SKY_BLUE_URL");
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${TILE_SIZE}" height="${TILE_SIZE}"><rect width="100%" height="100%" fill="#cfefff"/></svg>`;
-      return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+      const canvas = document.createElement('canvas');
+      canvas.width = TILE_SIZE;
+      canvas.height = TILE_SIZE;
+      const ctx = canvas.getContext('2d');
+      
+      // Draw white background (border)
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+      
+      // Draw blue interior with 1px inset
+      ctx.fillStyle = '#cfefff';
+      ctx.fillRect(1, 1, TILE_SIZE - 2, TILE_SIZE - 2);
+      
+      return canvas.toDataURL('image/png');
     })();
 
-    // Local red tile (very light) as a data URL SVG, sized to TILE_SIZE
+
+    // Returns a single pixel tile
     const NONEXISTANT_TILE_URL = (() => {
-      console.log("Making NONEXISTANT_TILE_URL");
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${TILE_SIZE}" height="${TILE_SIZE}"><rect width="100%" height="100%" fill="#ffefcf"/></svg>`;
-      return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = 1;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'black';
+      ctx.fillRect(0, 0, 1, 1);
+      return canvas.toDataURL();
     })();
 
 
@@ -236,11 +253,10 @@
     .then((mapData) => {
       // mapData is expected to be an object: { "H4": { claimed: true|false }, ... }
       console.log("mapData", mapData);
-      const claimedSet = new Set(
+      // Dictionary mapping parcel keys to claimed status (true/false)
+      const claimedDict = Object.fromEntries(
         Object.entries(mapData)
-          // Todo: use a dict here so we can tell the difference between unclaimed and missing
-          .filter(([, v]) => v && v.claimed === true)
-          .map(([k]) => k)
+          .map(([k, v]) => [k, v && v.claimed === true])
       );
 
 
@@ -281,14 +297,18 @@
 
           console.log("row", row, "col", col, "parcelName", parcelName);
 
-          if (claimedSet.has(parcelName)) {
+          if (parcelName in claimedDict) {
 
-            const tileUrl = `${TILE_DIR}/tile-${parcelName}.png`; // 0-based for actual file path
-            return tileUrl;
+            if (claimedDict[parcelName]) {
+              const tileUrl = `${TILE_DIR}/tile-${parcelName}.png`; // 0-based for actual file path
+              return tileUrl;
+            }
+
+            return UNCLAIMED_TILE_URL;
           }
 
           // If we didn't find a tile, return the sky blue placeholder
-          return "500x500-test.png";
+          return NONEXISTANT_TILE_URL;
         },
       });
 
