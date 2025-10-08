@@ -1,0 +1,23 @@
+/*
+  Basic full-viewport layout for the Leaflet map.
+  Keep it simple now; we can expand styling later.
+*/
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+#map {
+  height: 100%;
+  width: 100%;
+}
+
+/* Optional: slightly darken the page background around the map */
+body {
+  background: #111;
+}
+
+/* Leaflet container background so empty areas are distinguishable */
+.leaflet-container {
+  background: #1a1a1a;
+}

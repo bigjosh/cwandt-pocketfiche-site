@@ -3,7 +3,7 @@
 Create a map.json from the tiles/ directory.
 
 Scans files like tiles/tile-H4.png and produces a JSON object mapping
-coordinates (e.g., "H4") to { "claimed": true } so it can be directly
+coordinates using 1-based numeric keys (e.g., "H5" for col index 4) so it can be directly
 used as a JS dictionary/object.
 
 Additionally, it appends entries for ALL unclaimed tiles whose centers lie
@@ -37,13 +37,20 @@ FILENAME_RE = re.compile(r"^tile-([A-Za-z]+)(\d+)\.(?:png)$", re.IGNORECASE)
 
 
 def parse_coordinate(filename: str) -> Optional[str]:
-    """Extract coordinate like 'H4' from a filename like 'tile-H4.png'."""
+    """Extract 1-based coordinate key from a filename like 'tile-H4.png'.
+
+    The numeric part in filenames is 0-based; we convert to 1-based so that
+    (0,0) maps to 'A1' at the top-left of the grid.
+    """
     m = FILENAME_RE.match(filename)
     if not m:
         return None
     row_letters = m.group(1).upper()
-    col_number = m.group(2)
-    return f"{row_letters}{col_number}"
+    try:
+        col_zero_based = int(m.group(2))
+    except ValueError:
+        return None
+    return f"{row_letters}{col_zero_based + 1}"
 
 
 def col_to_letters(col: int) -> str:
@@ -103,7 +110,8 @@ def build_map(tiles_dir: Path) -> Dict[str, Dict[str, bool]]:
         for col in range(COLS):
             if not is_inside_radius(col, row):
                 continue
-            coord = f"{row_letters}{col}"
+            # Use 1-based numeric key: A1 is top-left (row=0, col=0)
+            coord = f"{row_letters}{col + 1}"
             if coord not in mapping:
                 mapping[coord] = {"claimed": False}
 

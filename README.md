@@ -64,18 +64,21 @@ It is now all static, so no deploy or run needed! As long as the client can get 
 
 # Notes
 
+## Map.json
+
+This map is always loaded first, and it is used to know which tiles to request from the server. No point wasting time and bandwith requesting empty tiles.
+
 
 ## Tiles
 
-Our grid is 38 columns wide and 38 rows tall, so a total of 38*38 = 1444 possible tiles (A1 through AL38). A1 is in the top left corner, and AL38 is in the bottom right corner, which is kinda counter intuitive. But at least we can make a simple mapping to this from Leaflet's (lat,lng) coordinates using a `getTileUrl` function.
+We keep all populated tiles in the `tiles` directory. We use the `map.json` file to know which tiles to request from the server. Every tile in `/tiles`is 500x500 pixels.
 
-In practice, there are fewer tiles because the claimable radius is much smaller than the grid size. Bu tnot that I will reservbe at least one tile outside this radium for my purposes. :)
+Our grid is 38 columns wide and 38 rows tall, so a total of 38*38 = 1444 possible tiles (A1 through AL38). A1 is in the top left corner, and AL38 is in the bottom right corner, which is kinda counter intuitive. But at least we can make a simple mapping to this from Leaflet's (lat,lng) coordinates using a `getTileUrl` function. We also use this custom `getTileUrl` to return a locally generated placeholder image for unclaimed tiles to avoid unnecessary network requests.
 
-From the old system, each tile is [column][row] (e.g. A1, B2, ... AL38), which is confusing becuase it is (y,x) instead of (x,y). 
+In practice, there are fewer tiles because the claimable radius is smaller than the grid size. But note that I will reserve at least one tile outside this radius for my own exclusive purposes. :)
 
-Every tile is 500x500 pixels. 
+We will later add an overlay layer with a big circle to show the claimable radius. And maybe also black out the surrounding area.
 
-We keep all populated tiles in the `tiles` directory. We use the `map.json` file to know which tiles to request from the server.
 
 ### Zooming
 
