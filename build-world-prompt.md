@@ -1,0 +1,4 @@
+
+28m ago
+
+We are going to create a new python program called build_world.py  that reads in the 500x500 parcel PNG image files in parcels/ and outputs a directory treet structure in world/ . The world/  will be in typical openmaps structure suitable for a leaflet template of world/{z}/{x}/{y}.png  .  At Zoom level 6 the tile file and the parcel file are the same size (one-for-one pixels) there will exactly one tile file for each parcel file in parcels and the tile file will not be scaled.  Zoom level 0 will have single 500x500 tile PNG called world/0/0/0.png that contains the full world of all the combined parcel images scaled down by 64 times to fit inside the single tile. All zoom levels bewteen follow the same power of two scaling progression. For all zoom levels below 6, use alising to make the resulting scaled down images look as good as possible. 

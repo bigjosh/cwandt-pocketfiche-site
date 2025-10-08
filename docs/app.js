@@ -14,11 +14,14 @@
 
 (() => {
   // ---- Constants matching the server/grid ----
+
   const TILE_SIZE = 500;       // Each tile is 500x500 pixels
   const COLS = 38;             // Total columns in the grid
   const ROWS = 38;             // Total rows in the grid
   const WIDTH = COLS * TILE_SIZE;
   const HEIGHT = ROWS * TILE_SIZE;
+
+
 
   // Paths relative to docs/
   const MAP_JSON_URL = 'map.json';
@@ -108,55 +111,73 @@
   }
 
 
-    // Local sky-blue tile (very light) as a PNG data URL, sized to TILE_SIZE with 1px white border
-    const UNCLAIMED_TILE_URL = (() => {
-      console.log("Making SKY_BLUE_URL");
-      const canvas = document.createElement('canvas');
-      canvas.width = TILE_SIZE;
-      canvas.height = TILE_SIZE;
-      const ctx = canvas.getContext('2d');
-      
-      // Draw white background (border)
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
-      
-      // Draw blue interior with 1px inset
-      ctx.fillStyle = '#cfefff';
-      ctx.fillRect(1, 1, TILE_SIZE - 2, TILE_SIZE - 2);
-      
-      return canvas.toDataURL('image/png');
-    })();
+  // Local sky-blue tile (very light) as a PNG data URL, sized to TILE_SIZE with 1px white border
+  const UNCLAIMED_TILE_URL = (() => {
+    console.log("Making SKY_BLUE_URL");
+    const canvas = document.createElement('canvas');
+    canvas.width = TILE_SIZE;
+    canvas.height = TILE_SIZE;
+    const ctx = canvas.getContext('2d');
+    
+    // Draw white background (border)
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, TILE_SIZE, TILE_SIZE);
+    
+    // Draw blue interior with 1px inset
+    ctx.fillStyle = '#cfefff';
+    ctx.fillRect(1, 1, TILE_SIZE - 2, TILE_SIZE - 2);
+    
+    return canvas.toDataURL('image/png');
+  })();
 
 
-    // Returns a single pixel tile
-    const NONEXISTANT_TILE_URL = (() => {
-      const canvas = document.createElement('canvas');
-      canvas.width = 1;
-      canvas.height = 1;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = 'black';
-      ctx.fillRect(0, 0, 1, 1);
-      return canvas.toDataURL();
-    })();
+  // Returns a single pixel tile
+  const NONEXISTANT_TILE_URL = (() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, 1, 1);
+    return canvas.toDataURL();
+  })();
+
+
+  // Bear with me here...
+  // The CRS.Simple is hardcoded to have (0,0) in the top-left corner and there is no other CRS that has a flat world with (0,0) in the center. 
+  // My brain can not handle this, so we need to create our own CRS that has (0,0) in the center and normal (x,y) coordinates.
+
+
+  // Origin (0,0) at tile center. x→right, y→up.
+  // One map unit = one pixel at zoom 0
+  // so the whole world goes from upper left (-250,250) to bottom right (250,-250)
+  const CRS_CENTERED = L.extend({}, L.CRS.Simple, {
+  transformation: new L.Transformation(1, TILE_SIZE/2, -1, TILE_SIZE/2)
+  });    
 
 
   // ---- Map init ----
   const map = L.map('map', {
-    crs: L.CRS.Simple,
-    minZoom: -4, 
-    maxZoom: 5,
+    crs: CRS_CENTERED,
+    // minZoom: -4, 
+    // maxZoom: 5,
+    minZoom: -6,
+    maxZoom: 10,
     zoomControl: true,
     attributionControl: false
     // Stick with SVG so that our circles will look sharp at all zoom sizes
   });
 
 
-  // Full grid bounds (used as a fallback and for panning limits)
-  const worldBounds = L.latLngBounds([[0, 0], [HEIGHT, WIDTH]]);
+  // In our world one unit of latlong is one pixel at zoom 0
+  // so the whole world goes from upper left (-250,250) to bottom right (250,-250)
+  const worldBounds = L.latLngBounds([[-(TILE_SIZE/2), (TILE_SIZE/2)], [(TILE_SIZE/2), -(TILE_SIZE/2)]]);
+
+  // panning limits
   map.setMaxBounds(worldBounds.pad(0.1)); // small padding to allow gentle panning  
 
   // Set initial view to center of grid
-  map.setView([HEIGHT / 2, WIDTH / 2], 0);
+  map.setView([0,0], 0);
 
   // Feelling debuggy - might delete
   // Passive status control: zoom + center (live)
@@ -259,7 +280,6 @@
           .map(([k, v]) => [k, v && v.claimed === true])
       );
 
-
       // Custom tile layer that maps Leaflet tile coords -> our grid keys
       // and also uses a custom getTileUrl function to return a locally generated placeholder image for unclaimed tiles to avoid unnecessary network requests.
       const ParcelsTileLayer = L.TileLayer.extend({
@@ -312,22 +332,51 @@
         },
       });
 
+      // Custom tile layer that maps Leaflet tile coords -> our grid keys
+      // and also uses a custom getTileUrl function to return a locally generated placeholder image for unclaimed tiles to avoid unnecessary network requests.
+      const DebugTileLayer = L.TileLayer.extend({
+        getTileUrl: function (coords) {
+          console.log("coords", coords);
+        
+          // debug
+          return makeDebugTileDataURL(  coords , "debug");
+
+          // If we didn't find a tile, return the sky blue placeholder
+          return NONEXISTANT_TILE_URL;
+        },
+      });
+
+
+      // Debug tile layer shows coords in inside each tile
+      const parcels = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' , {       
+          tileSize: TILE_SIZE,  
+          bounds: worldBounds,
+          minNativeZoom: 0,
+          maxNativeZoom: 6,
+          minZoom: -6, 
+          maxZoom: 10,        
+          noWrap: true,
+          updateWhenIdle: true,
+
+      }).addTo(map);
 
       // OMG, the whole problem was that you MUST supply a URL tremplate here EVEN THOUGH YOU ARE NOT ACTUALLY USING IT!
       // SO bad. so many hours wasted on this. 
 
-      const parcels = new ParcelsTileLayer(  '500x500-test.png' ,{
-        tileSize: TILE_SIZE,
+      // const parcels = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' ,{
+      //   tileSize: TILE_SIZE,
 
-        // So I am only going to provide tiles at the native resolution (zoom 0) and let Leaflet do any other scaling up or down
-        // locally. minNativeZoom must match or be lower than the map's minZoom to enable auto-scaling.
-        minNativeZoom: 0,
-        maxNativeZoom: 0,
-        minZoom: -4, 
-        maxZoom: 5,        
-        noWrap: true,
-        updateWhenIdle: true,
-      }).addTo(map);
+      //   // So I am only going to provide tiles at the native resolution (zoom 0) and let Leaflet do any other scaling up or down
+      //   // locally. minNativeZoom must match or be lower than the map's minZoom to enable auto-scaling.
+      //   minNativeZoom: 0,
+      //   maxNativeZoom: 6,
+      //   minZoom: -4, 
+      //   maxZoom: 10,        
+      //   noWrap: true,
+      //   updateWhenIdle: true,
+      // }).addTo(map);
+
+
 
 
       // // Lets test with a static tile

@@ -143,39 +143,22 @@ so we want to solve for x in `p(0,x) >=  19000` so that at zoom 0 the whole worl
 
 Let's check our work. 
 
-| Zoom | Parcel pixels per tile |
+| Zoom | Parcel pixels per tile | World Dimensions in tiles |
 | - | - |
-| 6 | 500 |
-| 5 | 1000 |
-| 4 | 2000 |
-| 3 | 4000 |
-| 2 | 8000 |
-| 1 | 16000 |
-| 0 | 32000 |   
+| 6 | 500 | 64x64|
+| 5 | 1000 | 32x32 |
+| 4 | 2000 | 16x16 |
+| 3 | 4000 | 8x8 |
+| 2 | 8000 |  4x4 |
+| 1 | 16000 | 2x2 |
+| 0 | 32000 | 1x1 |
 
+The 0th zoom level will be a little sparse, but that is OK as long as the world fits completely in one tile. 
 
-
-
-tile size at zoom y = 500 * (2 ^ (y-x))
-
-we need the tiles size to be greater than 500*38 = 19000 pixels in each direction at zoom 0. 
-
-solve for 
-
-
-
-we want 
-
-
-with zoom level X is 500x500 = 500x500 
-
-We only have the actuial tile files on the server, so we will let the browser do all the scaling in both directions.
-
-THIS WAS VERY HARD TO FIGURE OUT SO BE CAREFUL CHANGING IT!
+We will allow fractional zooms becuase really in the browser you can't see individual pixels so great so it doesnt matter much. But I do want there to be a zoom level that is pixel perfect ject becuase I want it to look great for people with good monitors and good eyes. Maybe we shoudl enable the retina display mode too. 
 
 We will always start at at zoom level that fits the centermost 2x2 tiles in the canvas (and maybe a 25-50% min margin around that so people can see there is more in each directtion). These are special tiles that CW&T made and we want them to be the first thing the user sees.  
 
-Zoom=0 is one tile per parcel. We can't have more resolution than the actual parcels so we will let the borwser do the scaling. (maybe fun to do an easter egg if they zoom in too far?) So hard, trust me. 
 
 
 
