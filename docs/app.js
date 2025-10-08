@@ -126,7 +126,7 @@
   // ---- Map init ----
   const map = L.map('map', {
     crs: L.CRS.Simple,
-    minZoom: -5, 
+    minZoom: -4, 
     maxZoom: 5,
     zoomControl: true,
     attributionControl: false
@@ -303,7 +303,7 @@
         // locally. minNativeZoom must match or be lower than the map's minZoom to enable auto-scaling.
         minNativeZoom: 0,
         maxNativeZoom: 0,
-        minZoom: -5, 
+        minZoom: -4, 
         maxZoom: 5,        
         noWrap: true,
         updateWhenIdle: true,
