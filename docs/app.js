@@ -18,10 +18,32 @@
   const TILE_SIZE = 500;       // Each tile is 500x500 pixels
   const COLS = 38;             // Total columns in the grid
   const ROWS = 38;             // Total rows in the grid
-  const WIDTH = COLS * TILE_SIZE;
-  const HEIGHT = ROWS * TILE_SIZE;
 
 
+  // Calculate um per mapunit. We will use this for drawing physiocal sized objects on the map using map units.
+  const UM_PER_MAPUNIT = (() => {
+
+    // We picked our zooms to make 1 tile pixel = 1 parcel pixel at zoom=6
+    const um_per_tilepixelz6 = 1   
+
+    // We also defined 1 mapunit to be 1 tile wide at zoom=0
+    const mapunit_per_tilepixel_z0 = 1
+
+    // Just math, every zoom level is double the size of the previous
+    const tilepixelz6_per_tilepixelz0 = Math.pow(2,6-0)
+
+    const tilepixelz6_per_mapunit = tilepixelz6_per_tilepixelz0 * mapunit_per_tilepixel_z0
+
+    // This is the answer we need 
+    return um_per_tilepixelz6 * tilepixelz6_per_mapunit
+
+  })()
+
+
+  // This parameter is straight from the kickstarter campaign
+  const CLAIMABLE_RADIUS_UM = 25000
+
+  console.log("UM_PER_MAPUNIT", UM_PER_MAPUNIT);
 
   // Paths relative to docs/
   const MAP_JSON_URL = 'map.json';
@@ -292,8 +314,24 @@
     updateWhenIdle: true,
   }).addTo(map);      
 
-  // OMG, the whole problem was that you MUST supply a URL tremplate here EVEN THOUGH YOU ARE NOT ACTUALLY USING IT!
-  // SO bad. so many hours wasted on this. 
+  // Create an overlay layer with a circle that shows the claimable radius
+  // The color and width of the circle are defined in style.css
+  
+  const circleLayer = L.layerGroup().addTo(map);
+  
+  const innerDiameterMicrometers = CLAIMABLE_RADIUS_UM;
+  const innerRadiusMicrometers = innerDiameterMicrometers / 2;
+  const radiusMapUnits = innerRadiusMicrometers / UM_PER_MAPUNIT;
+  
+  // Create circle centered at origin (0, 0)
+  const circle = L.circle([0, 0], {
+    radius: radiusMapUnits,
+    className: 'claimable-circle',
+    interactive: false  // Don't capture mouse events
+  });
+  
+  circleLayer.addLayer(circle);
+
 
   // const parcels = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' ,{
   //   tileSize: TILE_SIZE,

@@ -21,3 +21,10 @@ body {
 .leaflet-container {
   background: #1a1a1a;
 }
+
+/* This is the circle that shows the claimable radius. All the parcels are inside this circle. */
+.claimable-circle {
+  fill: #b0b0ff;    /* I feel like subtle sky blue is a good color for the wide open teritories */
+  stroke: #ff8c00;  /* Orange color? I just thing it should not be black becuase it is meta info. Only the parcel data itself should be black and white */
+  stroke-width: 3px;  /* To taste? */
+}
