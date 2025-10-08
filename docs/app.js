@@ -207,19 +207,23 @@
   // add it
   map.addControl(new StatusControl({ position: 'bottomleft' }));
 
-  // Custom scale bar that shows micrometers (µm) at zoom 0
-  // At zoom 0: 1 pixel = 1 µm, doubling every zoom level
+  // Custom scale bar that shows correct scale for our tiny world
+  // At zoom 6: 1 pixel = 1 µm, doubling every zoom level. 
   // TODO: THIS IS WRONG. FIGURE OUT WHY.
   const MicrometerScale = L.Control.Scale.extend({
     _updateMetric: function (maxMeters) {
       // Get current zoom level - each zoom level doubles the scale
       const zoom = this._map.getZoom();
-      // At zoom 0, 1 pixel = 1 µm. At zoom 1, 1 pixel = 0.5 µm, etc.
-      const micrometersPerPixel = 1 / Math.pow(2, zoom);
-      
-      // maxMeters from Leaflet represents the pixel width we have to work with
-      // Convert to micrometers
-      const maxMicrometers = maxMeters * micrometersPerPixel;
+      // At zoom 5, 1 pixel = 2 µm
+      // At zoom 6, 1 pixel = 1 µm. 
+      // At zoom 7, 1 pixel = 0.5 µm
+      const micrometersPerPixel = 2 / Math.pow(2, 6-zoom);
+
+      console.log("micrometersPerPixel", micrometersPerPixel);
+
+      const pixelsPerMicron = 1 / micrometersPerPixel;
+      console.log("pixelsPerMicron", pixelsPerMicron);
+
       
       // Choose appropriate scale bar size and unit
       const scales = [
@@ -243,22 +247,10 @@
         { value: 500000, label: '50 cm' },
         { value: 1000000, label: '1 m' }
       ];
-      
-      // Find the largest scale that fits
-      let scale = scales[0];
-      for (let i = 0; i < scales.length; i++) {
-        if (scales[i].value <= maxMicrometers) {
-          scale = scales[i];
-        } else {
-          break;
-        }
-      }
-      
-      // Calculate the width in pixels for this scale
-      const widthInPixels = scale.value / micrometersPerPixel;
-      
+                  
+
       // Update the scale bar
-      this._updateScale(this._mScale, scale.label, widthInPixels / maxMeters);
+      this._updateScale(this._mScale, "1um", pixelsPerMicron);
     }
   });
   
