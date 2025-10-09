@@ -24,9 +24,13 @@ body {
 
 /* This is the circle that shows the claimable radius. All the parcels are inside this circle. */
 .gold-disk-circle {
-  fill: #ff9412;  /* Orange color? I just thing it should not be black becuase it is meta info. Only the parcel data itself should be black and white */
+  fill: #ff9412 ;  /* Rich golden orange - default bright version */
   stroke: none;
+}
 
+.gold-disk-circle-toned {
+  fill: #f3c21f;  /* Brighter orange - toned down version */
+  stroke: none;
 }
 
 /* optional grid lines */

@@ -362,13 +362,19 @@
     maxZoom: 10,        
     noWrap: true,
     updateWhenIdle: true,
-  }).addTo(map);      
+  });      
 
 
   // --- Gold disk circle
   
   // Create an overlay layer with a circle that shows the claimable radius
   // The color and width of the circle are defined in style.css
+  
+  // Create a custom pane for the gold disk so it renders BEHIND tiles
+  // Default panes: tilePane (z-index 200), overlayPane (z-index 400)
+  // We need z-index < 200 to be behind tiles
+  map.createPane('goldDiskPane');
+  map.getPane('goldDiskPane').style.zIndex = 150;
   
   const circleLayer = L.layerGroup();
   
@@ -377,13 +383,29 @@
   const radiusMapUnits = innerRadiusMicrometers / UM_PER_MAPUNIT;
   
   // Create circle centered at origin (0, 0)
+  // Default to bright color (#ffad1f)
   const circle = L.circle([0, 0], {
     radius: radiusMapUnits,
     className: 'gold-disk-circle',
+    fillOpacity: 1,     // Override Leaflet's default 0.2 opacity
+    pane: 'goldDiskPane',  // Use custom pane to render behind tiles
     interactive: false  // Don't capture mouse events
   });
   
   circleLayer.addLayer(circle);
+  
+  // Create a toggle layer for switching between bright and toned-down colors
+  const toneDownLayer = L.layerGroup();
+  toneDownLayer.onAdd = function(map) {
+    // Switch to toned-down color
+    circle._path.classList.remove('gold-disk-circle');
+    circle._path.classList.add('gold-disk-circle-toned');
+  };
+  toneDownLayer.onRemove = function(map) {
+    // Switch back to bright color
+    circle._path.classList.remove('gold-disk-circle-toned');
+    circle._path.classList.add('gold-disk-circle');
+  };
 
   // --- Create grid lines
 
@@ -492,6 +514,7 @@
   
   const overlayLayers = {
     "Gold Disk": circleLayer,
+    "Tone it down": toneDownLayer,
     "Grid Lines": gridLayer,
     "Status Display": statusControlLayer,
     "Scale Bar": scaleControlLayer,
@@ -501,8 +524,9 @@
   // Add the layers control to the map
   L.control.layers(baseLayers, overlayLayers, { position: 'topright' , hideSingleBase: true }).addTo(map);
   
-  // Add default layers (parcels layer is already added, add the gold disk and scale by default)
+  // Add default layers - gold disk first (behind), then parcels (on top)
   circleLayer.addTo(map);
+  parcelsLayer.addTo(map);
   scaleControlLayer.addTo(map);
 
   
