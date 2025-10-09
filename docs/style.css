@@ -35,3 +35,18 @@ body {
   stroke: rgba(19, 211, 61, 0.5);    /* should be 50% transparent so we can see the parcel data below */
   stroke-width: 1px;                   /* Should always be 1px at all zoom levels */
 }
+
+
+/* Scale bar styling */
+.leaflet-control-scale {
+  background: rgba(0, 180, 180, 0.85) !important;  /* Vibrant cyan/teal with high opacity */
+  border: 2px solid #00ffff !important;             /* Bright cyan border */
+}
+
+.scale-text {
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #000;                                      /* Black text for better contrast on cyan background */
+  text-shadow: 0 0 2px rgba(255, 255, 255, 0.3);  /* Subtle glow for depth */
+}

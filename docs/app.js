@@ -54,9 +54,8 @@
 
   console.log("UM_PER_MAPUNIT", UM_PER_MAPUNIT);
 
-  // Paths relative to docs/
-  const MAP_JSON_URL = 'map.json';
-  const TILE_DIR = 'tiles';
+  // Where to find the tiles (relative to the html file)
+  const TILE_URL_TEMPLATE = "world/{z}/{x}/{y}.png";
 
   // ---- Utilities ----
   // Convert letters like 'A'..'Z','AA','AB' to 0-based row index
@@ -99,7 +98,7 @@
 
   // Build image URL for a coordinate key (e.g., 'H4' -> tiles/tile-H4.png)
   function tileUrlFromCoord(coord) {
-    return `${TILE_DIR}/tile-${coord}.png`;
+  return `${TILE_DIR}/tile-${coord}.png`;
   }
 
   // Compute pixel bounds for a given row/col (top-left, bottom-right)
@@ -239,54 +238,94 @@
   const statusControl = new StatusControl({ position: 'bottomleft' });
 
   // Custom scale bar that shows correct scale for our tiny world
-  // At zoom 6: 1 pixel = 1 µm, doubling every zoom level. 
-  // TODO: THIS IS WRONG. FIGURE OUT WHY.
-  const MicrometerScale = L.Control.Scale.extend({
-    _updateMetric: function (maxMeters) {
-      // Get current zoom level - each zoom level doubles the scale
-      const zoom = this._map.getZoom();
-      // At zoom 5, 1 pixel = 2 µm
-      // At zoom 6, 1 pixel = 1 µm. 
-      // At zoom 7, 1 pixel = 0.5 µm
-      const micrometersPerPixel = 2 / Math.pow(2, 6-zoom);
+  // Range: 10nm to 100mm
+  // Scale bar never longer than 50% of window width
+  // Use power of ten sizes with nm, um, or mm units
 
-      console.log("micrometersPerPixel", micrometersPerPixel);
+  const ScaleControl = L.Control.extend({
+    options: {
+      position: 'bottomright',
+      maxWidth: 0.5  // Maximum width as fraction of window width (50%)
+    },
 
-      const pixelsPerMicron = 1 / micrometersPerPixel;
-      console.log("pixelsPerMicron", pixelsPerMicron);
-
+    onAdd: function(map) {
+      this._map = map;
       
-      // Choose appropriate scale bar size and unit
-      const scales = [
-        { value: 1, label: '1 µm' },
-        { value: 2, label: '2 µm' },
-        { value: 5, label: '5 µm' },
-        { value: 10, label: '10 µm' },
-        { value: 20, label: '20 µm' },
-        { value: 50, label: '50 µm' },
-        { value: 100, label: '100 µm' },
-        { value: 200, label: '200 µm' },
-        { value: 500, label: '500 µm' },
-        { value: 1000, label: '1 mm' },
-        { value: 2000, label: '2 mm' },
-        { value: 5000, label: '5 mm' },
-        { value: 10000, label: '1 cm' },
-        { value: 20000, label: '2 cm' },
-        { value: 50000, label: '5 cm' },
-        { value: 100000, label: '10 cm' },
-        { value: 200000, label: '20 cm' },
-        { value: 500000, label: '50 cm' },
-        { value: 1000000, label: '1 m' }
-      ];
-                  
+      // Create the scale bar container
+      const container = L.DomUtil.create('div', 'leaflet-control-scale');
+      container.style.background = 'rgba(0, 0, 0, 0.5)';
+      container.style.border = '2px solid #fff';
+      container.style.padding = '0';
+      container.style.boxSizing = 'border-box';
+      
+      // Create the inner content element for text
+      this._scaleText = L.DomUtil.create('div', 'scale-text', container);
+      this._scaleText.style.textAlign = 'center';
+      this._scaleText.style.padding = '2px 8px';
+      this._scaleText.style.whiteSpace = 'nowrap';
+      this._scaleText.style.lineHeight = '1';
+      
+      this._container = container;
+      
+      // Update on zoom and moveend
+      map.on('zoom move', this._update, this);
+      this._update();
+      
+      return container;
+    },
 
-      // Update the scale bar
-      this._updateScale(this._mScale, "1um", pixelsPerMicron);
+    onRemove: function(map) {
+      map.off('zoom move', this._update, this);
+    },
+
+    _update: function() {
+      const zoom = this._map.getZoom();
+      
+      // Calculate nanometers per pixel at this zoom level
+      // At zoom 6, 1 pixel = 1 µm = 1000 nm
+      // Each zoom level doubles/halves the scale
+      const nanometersPerPixel = 1000 / Math.pow(2, zoom - parcel_zoom);
+      
+      // Get maximum allowed width in pixels (50% of window width)
+      const maxWidthPixels = Math.floor(window.innerWidth * this.options.maxWidth);
+      
+      // Define available scale sizes (all in nanometers)
+      // Power of 10: 10nm, 100nm, 1um, 10um, 100um, 1mm, 10mm, 100mm
+      const scales = [
+        { nm: 1000, label: '1um' },
+        { nm: 10000, label: '10um' },
+        { nm: 100000, label: '100um' },
+        { nm: 1000000, label: '1mm' },
+        { nm: 10000000, label: '10mm' },
+        { nm: 100000000, label: '100mm' },
+        { nm: 1000000000, label: '1m' }
+      ];
+      
+      // Find the largest scale that fits within maxWidth
+      // Start from largest and work down to find the biggest one that fits
+      let selectedScale = scales[0]; // Default to smallest (10nm)
+      
+      for (let i = scales.length - 1; i >= 0; i--) {
+        const scale = scales[i];
+        const widthPixels = scale.nm / nanometersPerPixel;
+        
+        if (widthPixels <= maxWidthPixels) {
+          selectedScale = scale;
+          break;
+        }
+      }
+      
+      // Calculate the actual width in pixels for the selected scale
+      const barWidthPixels = Math.round(selectedScale.nm / nanometersPerPixel);
+      
+      // Update the container width and text
+      this._container.style.width = barWidthPixels + 'px';
+      this._scaleText.textContent = selectedScale.label;
     }
   });
   
   // Create the scale control but don't add it yet - we'll add it via layer control
-  const scaleControl = new MicrometerScale({ position: 'bottomright', imperial: false });
+  const scaleControl = new ScaleControl({ position: 'bottomright' });
 
   const DebugTileLayer = L.TileLayer.extend({
     getTileUrl: function (coords) {
@@ -298,7 +337,8 @@
 
 
   // Debug tile layer shows coords in inside each tile
-  const debugLayer = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' , {       
+  // Note that the URL is not used but it has to be there. 
+  const debugLayer = new DebugTileLayer(  TILE_URL_TEMPLATE , {       
       tileSize: TILE_SIZE,  
       bounds: worldBounds,
       minNativeZoom: 0,
@@ -313,7 +353,7 @@
   // This is the main tile layer that shows the parcels. It will intionally fail to load tiles that are not found.
   // I think a 404 is faster than returning a 1px placeholder tile?
 
-  const parcelsLayer = new L.TileLayer(  'world/{z}/{x}/{y}.png' , {       
+  const parcelsLayer = new L.TileLayer(  TILE_URL_TEMPLATE , {       
     tileSize: TILE_SIZE,  
     bounds: worldBounds,
     minNativeZoom: 0,
@@ -358,8 +398,8 @@
 
   // Use the gold disk radius to constrain grid lines within the circle
   // For a circle centered at (0,0) with radius R:
-  // - Horizontal line at y=y0 intersects at x = ±√(R² - y0²)
-  // - Vertical line at x=x0 intersects at y = ±√(R² - x0²)
+  // - Horizontal line at y=y0 intersects at x = +/- SQRT(R^2 - y0^2)
+  // - Vertical line at x=x0 intersects at y = +/- SQRT(R^2 - x0^2)
   // 
   // Additionally, clip to the shorter of:
   // 1. Circle boundary (rounded down to nearest parcel boundary)
