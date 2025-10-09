@@ -347,22 +347,22 @@
   // --- Create grid lines
 
   const gridLayer = L.layerGroup().addTo(map);
-
   
   // We need to use map units for the grid lines
   // We want spacing between lines to be 1 tile at zoom 6 (the definition of zoom 6 is 1 tile is one parcel)
 
+  // a grid line between every parcel
 
-  const GRID_SPACING_MAPUNITS = TILE_SIZE_MAPUNITS;
+  const GRID_SPACING_MAPUNITS = mapunit_per_parceltile;
 
-
-  // vertical lines
-  for (let  i= 1; i < PARCEL_COLS/2; i += 1) {
-    const line = L.polyline([[ 0 - (PARCEL_COLS/2) +( TILE_SIZE * i), -250], [i, 250]], { className: 'grid-line' });
+  // vertical lines. 
+  for (let  i= -1 * (PARCEL_COLS/2); i <= PARCEL_COLS/2; i += 1) {
+    const line = L.polyline([[ -250 , i * GRID_SPACING_MAPUNITS ], [250, i * GRID_SPACING_MAPUNITS]], { className: 'grid-line' });
     gridLayer.addLayer(line);
   }
-  for (let y = -250; y <= 250; y += 50) {
-    const line = L.polyline([[-250, y], [250, y]], { className: 'grid-line' });
+
+  for (let  i= -1 * (PARCEL_ROWS/2); i <= PARCEL_ROWS/2; i += 1) {
+    const line = L.polyline([[ i  * GRID_SPACING_MAPUNITS , -250 ], [i * GRID_SPACING_MAPUNITS , 250]], { className: 'grid-line' });
     gridLayer.addLayer(line);
   }
 
