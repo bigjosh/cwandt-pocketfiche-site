@@ -289,7 +289,7 @@
       
       // Hide control at the start of zoom, update and show after zoom/move completes
       map.on('zoomstart', this._hide, this);
-      map.on('zoomend moveend', this._update, this);
+      map.on('zoomend', this._update, this);
       this._update();
       
       return container;
@@ -297,7 +297,7 @@
 
     onRemove: function(map) {
       map.off('zoomstart', this._hide, this);
-      map.off('zoomend moveend', this._update, this);
+      map.off('zoomend', this._update, this);
     },
 
     _hide: function() {
@@ -471,6 +471,7 @@
   // Default to bright color (#ffad1f)
   const circle = L.circle([0, 0], {
     radius: radiusMapUnits,
+    weight: 0,                      // Leaflet does not zoom border properly
     className: 'gold-disk-circle',
     fillOpacity: 1,     // Override Leaflet's default 0.2 opacity
     pane: 'goldDiskPane',  // Use custom pane to render behind tiles
@@ -572,12 +573,15 @@
     }
   }
 
+
+
   // --- Solar System Layer
   // Treat the gold disk as the sun and add planet orbits at scale
   
   // Create custom pane for solar system (above gold disk, below tiles)
   map.createPane('solarSystemPane');
-  map.getPane('solarSystemPane').style.zIndex = 175; // Between goldDisk (150) and tiles (200)
+  const solarPane = map.getPane('solarSystemPane');
+  solarPane.style.zIndex = 175; // Between goldDisk (150) and tiles (200)
   
   const solarSystemLayer = L.layerGroup();
   
@@ -640,11 +644,11 @@
     
     // Create planet marker (will be animated)
     const planetCircle = L.circle([0, orbitRadiusMapUnits], {
-      radius: planetRadiusMapUnits,
+      radius: planetRadiusMapUnits+1,
       color: planet.color,
       fillColor: planet.color,
       fillOpacity: 0.9,
-      weight: 1,
+      weight: 0,                  // Fun fact: leaflet does not scale boreders properly durring zoom animations. :/
       opacity: 1,
       interactive: false,
       pane: 'solarSystemPane',
@@ -659,17 +663,34 @@
       period: planet.period, // Earth years per orbit
       name: planet.name
     });
+
+    // // Test: add a single planet directly, not in layer group
+    // const testPlanet = L.circle([ 250 , 0], {
+    //   radius: 8,
+    //   color: '#ff00ff',
+    //   fillColor: '#ff00ff',
+    //   fillOpacity: 0.9,
+    //   weight: 0,
+    //   pane: 'goldDiskPane',  // Try gold disk pane
+    //   renderer: svgRenderer
+    // });
+    // solarSystemLayer.addLayer(testPlanet);
+
+
   });
   
   // Animation: planets complete orbit in 1 minute (60 seconds)
   // Earth takes 60 seconds, other planets scale by their period
-  const startTime = Date.now();
+  let startTime = Date.now();
   let animationRunning = false;
+  let pausedElapsed = 0; // Track elapsed time when paused
   
   function animatePlanets() {
     if (!animationRunning) return; // Stop if layer was removed
     
     const elapsed = (Date.now() - startTime) / 1000; // seconds elapsed
+
+    //console.log("animate: elapsed=" + elapsed+  " zoom=" + map.getZoom());
     
     planetMarkers.forEach(planet => {
       // Earth completes 1 orbit in 60 seconds
@@ -688,6 +709,30 @@
     
     requestAnimationFrame(animatePlanets);
   }
+  
+  // Pause planet animation during zoom to avoid position conflicts with Leaflet's transform
+  // Also pause "time" so planets resume from where they were, not where they "should be"
+  // We have to do this becuase if you try to update Stuff inside layers asynchonously while the map is zooming, 
+  // things get messed up and the animation gets all wonky. And if we just pause the animation durring the zooming, 
+  // then when we resume the animation, the planets "jump" to make up lost time. This is pysically aweful, but
+  // visually looks fine. 
+  
+  map.on('zoomstart', () => {
+    if (animationRunning) {
+      // Save the current elapsed time before pausing
+      pausedElapsed = (Date.now() - startTime) / 1000;
+      animationRunning = false;
+    }
+  });
+
+  map.on('zoomend', () => {
+    if (!animationRunning && pausedElapsed > 0) {
+      // Resume time from where we paused: adjust startTime backward by the paused elapsed time
+      startTime = Date.now() - (pausedElapsed * 1000);
+      animationRunning = true;
+      animatePlanets();
+    }
+  });
   
   // Set zoom range for solar system (only visible at far-out zoom levels)
   // We'll add/remove based on zoom level to control visibility
@@ -714,7 +759,7 @@
   
   function updateGridVisibility() {
     const zoom = map.getZoom();
-    const shouldBeVisible = zoom >= -2; // Show when at or above parcel minZoom
+    const shouldBeVisible = zoom >= 0; // Show when at or above parcel minZoom
     
     if (shouldBeVisible && !gridVisible) {
       gridLayer.addTo(map);
@@ -733,7 +778,7 @@
     if (!highlightLayer) return; // No highlight layer to manage
     
     const zoom = map.getZoom();
-    const shouldBeVisible = zoom >= -2; // Show when at or above parcel minZoom
+    const shouldBeVisible = zoom >= 0; // Show when at or above parcel minZoom
     
     if (shouldBeVisible && !highlightVisible) {
       highlightLayer.addTo(map);
@@ -853,8 +898,8 @@
   parcelsLayer.addTo(map);
   scaleControlLayer.addTo(map);
   
-  // Grid layer is added/removed automatically based on zoom (matches parcel layer minZoom)
-  updateGridVisibility(); // Initialize grid visibility
+  // Grid layer and highlight layer visibility will be evaluated after URL parameters are processed
+  // (see below after restoreViewFromURL and parcel highlighting)
   
   // Update layer visibility only after zoom completes (not during animation)
   map.on('zoomend', updateSolarSystemVisibility);
@@ -1044,6 +1089,12 @@
     // (whether from parcel parameter or default view)
     updateURLFromView();
   }
+
+  // Evaluate grid and highlight layer visibility now that zoom level has been set
+  // (either from URL parameters or default view)
+  updateGridVisibility();
+  updateHighlightVisibility();
+  updateSolarSystemVisibility();
 
   // --- Zoom-based transitions for gold disk color
   // As we zoom out past -2, transition disk from gold (fiche) to orange (sun)
