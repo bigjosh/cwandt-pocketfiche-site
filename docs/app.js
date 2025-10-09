@@ -192,7 +192,7 @@
   
   const map = L.map('map', {
     crs: CRS_CENTERED,
-    minZoom: -6,
+    minZoom: -7,
     maxZoom: 10,
     zoomControl: true,
     attributionControl: false,
@@ -292,46 +292,102 @@
     _update: function() {
       const zoom = this._map.getZoom();
       
-      // Calculate nanometers per pixel at this zoom level
-      // At zoom 6, 1 pixel = 1 µm = 1000 nm
-      // Each zoom level doubles/halves the scale
-      const nanometersPerPixel = 1000 / Math.pow(2, zoom - parcel_zoom);
-      
       // Get maximum allowed width in pixels (50% of window width)
       const maxWidthPixels = Math.floor(window.innerWidth * this.options.maxWidth);
-      
-      // Define available scale sizes (all in nanometers)
-      // Power of 10: 10nm, 100nm, 1um, 10um, 100um, 1mm, 10mm, 100mm
-      const scales = [
-        { nm: 1000, label: '1um' },
-        { nm: 10000, label: '10um' },
-        { nm: 100000, label: '100um' },
-        { nm: 1000000, label: '1mm' },
-        { nm: 10000000, label: '10mm' },
-        { nm: 100000000, label: '100mm' },
-        { nm: 1000000000, label: '1m' }
-      ];
-      
-      // Find the largest scale that fits within maxWidth
-      // Start from largest and work down to find the biggest one that fits
-      let selectedScale = scales[0]; // Default to smallest (10nm)
-      
-      for (let i = scales.length - 1; i >= 0; i--) {
-        const scale = scales[i];
-        const widthPixels = scale.nm / nanometersPerPixel;
+
+      // Variables to hold the final bar width and label
+      let barWidthPixels;
+      let label;
+
+      // At far zoom levels (-7 to -4), show astronomical scale (AU)
+      if (zoom <= -4) {
+        // Calculate pixels per map unit at current zoom
+        // At zoom 0, 1 map unit = 1 pixel
+        // At zoom -1, 1 map unit = 0.5 pixels (zoomed out 2x)
+        // At zoom -4, 1 map unit = 0.0625 pixels (zoomed out 16x)
+        const pixelsPerMapUnit = Math.pow(2, zoom);
         
-        if (widthPixels <= maxWidthPixels) {
-          selectedScale = scale;
-          break;
+        // Define available AU scales
+        const auScales = [
+          { factor: 0.01, label: '0.01 AU' },
+          { factor: 0.1, label: '0.1 AU' },
+          { factor: 1.0, label: '1 AU' },
+          { factor: 10.0, label: '10 AU' }
+        ];
+        
+        // Create a temporary canvas to measure text width
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.font = '12px monospace'; // Match the scale bar font
+        
+        const PADDING = 16; // Space padding on each end (8px per side)
+        
+        // Find the smallest AU scale where the label fits inside the bar
+        let selectedAU = auScales[auScales.length - 1]; // Default to largest (10 AU)
+        
+        for (let i = 0; i < auScales.length; i++) {
+          const auScale = auScales[i];
+          const widthPixels = EARTH_ORBIT_RADIUS_MAPUNITS * auScale.factor * pixelsPerMapUnit;
+          const textWidth = ctx.measureText(auScale.label).width;
+          
+          // Check if text fits with padding
+          if (textWidth + PADDING <= widthPixels) {
+            selectedAU = auScale;
+            break;
+          }
         }
+        
+        barWidthPixels = Math.round(EARTH_ORBIT_RADIUS_MAPUNITS * selectedAU.factor * pixelsPerMapUnit);
+        label = selectedAU.label;
+
+      } else {
+        // Calculate nanometers per pixel at this zoom level
+        // At zoom 6, 1 pixel = 1 µm = 1000 nm
+        // Each zoom level doubles/halves the scale
+        const nanometersPerPixel = 1000 / Math.pow(2, zoom - parcel_zoom);
+
+        // Define available scale sizes (all in nanometers)
+        // Power of 10: 10nm, 100nm, 1um, 10um, 100um, 1mm, 10mm, 100mm
+        const scales = [
+          { nm: 1000, label: '1um' },
+          { nm: 10000, label: '10um' },
+          { nm: 100000, label: '100um' },
+          { nm: 1000000, label: '1mm' },
+          { nm: 10000000, label: '10mm' },
+          { nm: 100000000, label: '100mm' },
+          { nm: 1000000000, label: '1m' }
+        ];
+        
+        // Create a temporary canvas to measure text width
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.font = '12px monospace'; // Match the scale bar font
+        
+        const PADDING = 16; // Space padding on each end (8px per side)
+        
+        // Find the smallest scale where the label fits inside the bar
+        let selectedScale = scales[scales.length - 1]; // Default to largest (1m)
+        
+        for (let i = 0; i < scales.length; i++) {
+          const scale = scales[i];
+          const widthPixels = scale.nm / nanometersPerPixel;
+          const textWidth = ctx.measureText(scale.label).width;
+          
+          // Check if text fits with padding
+          if (textWidth + PADDING <= widthPixels) {
+            selectedScale = scale;
+            break;
+          }
+        }
+        
+        // Calculate the actual width in pixels for the selected scale
+        barWidthPixels = Math.round(selectedScale.nm / nanometersPerPixel);
+        label = selectedScale.label;
       }
-      
-      // Calculate the actual width in pixels for the selected scale
-      const barWidthPixels = Math.round(selectedScale.nm / nanometersPerPixel);
       
       // Update the container width and text
       this._container.style.width = barWidthPixels + 'px';
-      this._scaleText.textContent = selectedScale.label;
+      this._scaleText.textContent = label;
     }
   });
   
@@ -354,7 +410,7 @@
       bounds: worldBounds,
       minNativeZoom: 0,
       maxNativeZoom: 6,
-      minZoom: -6, 
+      minZoom: -7, 
       maxZoom: 10,        
       noWrap: true,
       updateWhenIdle: true,
@@ -367,9 +423,9 @@
   const parcelsLayer = new L.TileLayer(  TILE_URL_TEMPLATE , {       
     tileSize: TILE_SIZE,  
     bounds: worldBounds,
-    minNativeZoom: 0,
-    maxNativeZoom: 6,
-    minZoom: -6, 
+    minNativeZoom: 0,   // The native sooms Are driven by how many tile sizes we have on the server (driven in build_world.py)
+    maxNativeZoom: 6,   // This range covers 1 parcel pixel=1 tile  pixel out to where all parcels fit in a single tile. 
+    minZoom: -7, 
     maxZoom: 10,        
     noWrap: true,
     updateWhenIdle: true,
@@ -536,6 +592,12 @@
   
   // Store planet markers for animation
   const planetMarkers = [];
+  
+  // Calculate Earth's orbital radius for 1 AU scale reference
+  // Find Earth in the planets array
+  const earthData = planets.find(p => p.name === 'Earth');
+  const earthOrbitRadiusKm = earthData.orbitKm * SCALE_FACTOR * ORBIT_COMPRESSION;
+  const EARTH_ORBIT_RADIUS_MAPUNITS = (earthOrbitRadiusKm * 1e9) / UM_PER_MAPUNIT; // 1 AU in map units
   
   planets.forEach(planet => {
     // Calculate orbit radius in map units
