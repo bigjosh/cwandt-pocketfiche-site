@@ -208,8 +208,17 @@
   // panning limits
   map.setMaxBounds(worldBounds.pad(0.1)); // small padding to allow gentle panning  
 
-  // Set initial view to center of grid
-  map.setView([0,0], 0);
+  // Set initial view to show center 4 parcels with 25% margin
+  // Center 4 parcels span from -1 to +1 parcels in both directions (2x2 grid centered at origin)
+  // 25% margin means adding 0.25 * 2 = 0.5 parcels on each side
+  const centerParcelSize = 2 * mapunit_per_parceltile;  // 2x2 parcels
+  const margin = 0.25 * centerParcelSize;  // 25% margin on each side
+  const halfExtent = (centerParcelSize / 2) + (margin / 2);  // Total half-width including margin
+  const initialBounds = L.latLngBounds(
+    [[-halfExtent, -halfExtent],  // Southwest corner (bottom-left)
+     [halfExtent, halfExtent]]     // Northeast corner (top-right)
+  );
+  map.fitBounds(initialBounds);
 
   // Feelling debuggy - might delete
   // Passive status control: zoom + center (live)
