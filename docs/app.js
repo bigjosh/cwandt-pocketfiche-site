@@ -564,13 +564,29 @@
   // todo: zoom into 2x2 center parcels
   //map.fitBounds(worldBounds, { padding: [80, 80] });
 
-  // Optional: click to log the tile coordinate under the cursor
+  // Click handler: fly to center of clicked parcel at parcel zoom level
   map.on('click', (e) => {
-    const col = Math.floor(e.latlng.lng / TILE_SIZE);
-    const row = Math.floor(e.latlng.lat / TILE_SIZE);
+    const x = e.latlng.lng;  // x coordinate in map units
+    const y = e.latlng.lat;  // y coordinate in map units
+    
+    // Calculate which parcel was clicked (centered grid coordinates)
+    const parcelX = Math.floor(x / mapunit_per_parceltile);
+    const parcelY = Math.floor(y / mapunit_per_parceltile);
+    
+    // Convert to 0-based row/col indices for display
+    const col = parcelX + PARCEL_COLS / 2;
+    const row = parcelY + PARCEL_ROWS / 2;
+    
     if (row >= 0 && row < PARCEL_ROWS && col >= 0 && col < PARCEL_COLS) {
       const coord = `${indexToLetters(row)}${col + 1}`;
       console.log('Clicked tile:', coord, { row, col });
+      
+      // Calculate center of the parcel in map units
+      const centerX = (parcelX + 0.5) * mapunit_per_parceltile;
+      const centerY = (parcelY + 0.5) * mapunit_per_parceltile;
+      
+      // Fly to the center of the parcel at zoom level 6
+      map.flyTo([centerY, centerX], parcel_zoom);
     }
   });
 })();
