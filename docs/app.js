@@ -215,7 +215,7 @@
   // panning limits
   map.setMaxBounds(worldBounds.pad(0.1)); // small padding to allow gentle panning  
 
-  // Set initial view to show center 4 parcels with 25% margin
+  // Default initial view: show center 4 parcels with 25% margin
   // Center 4 parcels span from -1 to +1 parcels in both directions (2x2 grid centered at origin)
   // 25% margin means adding 0.25 * 2 = 0.5 parcels on each side
   const centerParcelSize = 2 * mapunit_per_parceltile;  // 2x2 parcels
@@ -225,6 +225,8 @@
     [[-halfExtent, -halfExtent],  // Southwest corner (bottom-left)
      [halfExtent, halfExtent]]     // Northeast corner (top-right)
   );
+  
+  // Set default view (may be overridden by URL parameters later)
   map.fitBounds(initialBounds);
 
   // Feelling debuggy - might delete
@@ -794,7 +796,11 @@
     "Debug Tiles": debugLayer,
   };
   
-  // Layer control will be added after checking for parcel URL parameter
+  // Create the layers control once (layers can be added dynamically later)
+  const layersControl = L.control.layers(baseLayers, overlayLayers, { 
+    position: 'topright', 
+    hideSingleBase: true 
+  }).addTo(map);
   
   // Add default layers - gold disk first (behind), then parcels (on top)
   circleLayer.addTo(map);
@@ -805,6 +811,93 @@
   
   // Update solar system visibility on zoom
   map.on('zoom zoomend', updateSolarSystemVisibility);
+
+  // --- URL-based View Sharing
+  // Update URL to reflect current map view (similar to Google Maps)
+  // Format: ?@lat,lng,radiusum where radius is in micrometers
+  
+  function updateURLFromView() {
+    const center = map.getCenter();
+    const bounds = map.getBounds();
+    
+    // Calculate the radius of the view in micrometers
+    // Use the vertical extent (north-south) as the radius
+    const viewHeightMapUnits = bounds.getNorth() - bounds.getSouth();
+    const viewRadiusMapUnits = viewHeightMapUnits / 2;
+    const viewRadiusMicrometers = viewRadiusMapUnits * UM_PER_MAPUNIT;
+    
+    // Format the view parameter value: lat,lng,radiusum
+    const viewValue = `${center.lat.toFixed(2)},${center.lng.toFixed(2)},${viewRadiusMicrometers.toFixed(0)}um`;
+    
+    // Get current URL and build new query string manually to avoid encoding the @ and commas
+    const url = new URL(window.location.href);
+    const searchParams = new URLSearchParams(url.search);
+    
+    // Remove @ if it exists (we'll add it manually)
+    searchParams.delete('@');
+    
+    // Build query string with @ parameter first (unencoded), then other params
+    let queryString = `@=${viewValue}`;
+    const otherParams = searchParams.toString();
+    if (otherParams) {
+      queryString += '&' + otherParams;
+    }
+    
+    // Reconstruct URL with updated query parameters
+    const newURL = url.origin + url.pathname + '?' + queryString + url.hash;
+    
+    // Update browser URL without reloading the page
+    window.history.replaceState({}, '', newURL);
+  }
+  
+  // Parse view from URL and restore it
+  function restoreViewFromURL() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const viewParam = urlParams.get('@');
+    
+    if (viewParam) {
+      const match = viewParam.match(/^([-\d.]+),([-\d.]+),([\d.]+)um$/);
+      
+      if (match) {
+        const lat = parseFloat(match[1]);
+        const lng = parseFloat(match[2]);
+        const radiusMicrometers = parseFloat(match[3]);
+        
+        if (Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(radiusMicrometers)) {
+          // Convert radius from micrometers to map units
+          const radiusMapUnits = radiusMicrometers / UM_PER_MAPUNIT;
+          
+          // Create bounds centered at the specified point with the specified radius
+          const bounds = L.latLngBounds(
+            [lat - radiusMapUnits, lng - radiusMapUnits],  // Southwest corner
+            [lat + radiusMapUnits, lng + radiusMapUnits]   // Northeast corner
+          );
+          
+          // Fit the map to these bounds
+          map.fitBounds(bounds);
+          
+          console.log(`Restored view from URL: center (${lat}, ${lng}), radius ${radiusMicrometers}um`);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+  
+  // Listen for pan/zoom completion and update URL
+  map.on('moveend zoomend', () => {
+    // Use a small debounce to avoid excessive updates during animations
+    if (updateURLFromView.timeout) {
+      clearTimeout(updateURLFromView.timeout);
+    }
+    updateURLFromView.timeout = setTimeout(updateURLFromView, 100);
+  });
+
+
+  // --- Restore view from URL if present
+  // Try to restore view from @ parameter in URL (takes precedence over parcel parameter if both present)
+  // NOtew we need to do this here, before we process any parcel param so that the parcel param does not override the view param
+  const viewRestored = restoreViewFromURL();
 
   // --- Parcel Highlighting from URL Parameter
   // Check for ?parcel=AA4 style parameter in URL and highlight if present
@@ -845,41 +938,45 @@
       // Add the highlight layer to the map by default
       highlightLayer.addTo(map);
       
-      // Add to overlay layers control with dynamic label
-      overlayLayers[`Highlight ${highlightParcelId}`] = highlightLayer;
-      
-      // Update the layers control to include the new highlight layer
-      // We need to recreate the control to include the new layer
-      const layersControl = L.control.layers(baseLayers, overlayLayers, { 
-        position: 'topright', 
-        hideSingleBase: true 
-      }).addTo(map);
-      
-      // Calculate bounds with 10% margin around the parcel
-      const parcelWidth = mapunit_per_parceltile;
-      const parcelHeight = mapunit_per_parceltile;
-      const margin = 0.1;  // 10% margin
-      
-      const boundsX0 = x0 - parcelWidth * margin;
-      const boundsY0 = y0 - parcelHeight * margin;
-      const boundsX1 = x1 + parcelWidth * margin;
-      const boundsY1 = y1 + parcelHeight * margin;
-      
-      const highlightBounds = L.latLngBounds(
-        [[boundsY0, boundsX0],  // Southwest corner
-         [boundsY1, boundsX1]]   // Northeast corner
-      );
-      
-      // Fit the map to show the highlighted parcel with margin
-      map.fitBounds(highlightBounds);
-      
+      // Dynamically add the highlight layer to the existing layers control
+      layersControl.addOverlay(highlightLayer, `Highlight ${highlightParcelId}`);
+
       console.log(`Highlighting parcel ${highlightParcelId} at row ${parsed.row}, col ${parsed.col}`);
+
+      // If no view was specified in the URL, then lets fram the selected parcel into view
+
+      if (!viewRestored) {
+        
+        // Calculate bounds with 10% margin around the parcel
+        const parcelWidth = mapunit_per_parceltile;
+        const parcelHeight = mapunit_per_parceltile;
+        const margin = 0.1;  // 10% margin
+        
+        const boundsX0 = x0 - parcelWidth * margin;
+        const boundsY0 = y0 - parcelHeight * margin;
+        const boundsX1 = x1 + parcelWidth * margin;
+        const boundsY1 = y1 + parcelHeight * margin;
+        
+        const highlightBounds = L.latLngBounds(
+          [[boundsY0, boundsX0],  // Southwest corner
+          [boundsY1, boundsX1]]   // Northeast corner
+        );
+        
+        // Fit the map to show the highlighted parcel with margin
+        map.fitBounds(highlightBounds);
+        console.log(`Fitting map view to highlight bounds: ${highlightBounds}`);
+      }
+
     } else {
       console.warn(`Invalid parcel ID in URL: ${highlightParcelId}`);
     }
-  } else {
-    // No parcel parameter, add the layers control without highlight
-    L.control.layers(baseLayers, overlayLayers, { position: 'topright' , hideSingleBase: true }).addTo(map);
+  }
+  // Note: layers control is already created above, no need to create it here
+
+  if (!viewRestored) {
+    // No @ view parameter in URL, update URL to reflect current view
+    // (whether from parcel parameter or default view)
+    updateURLFromView();
   }
 
   // --- Zoom-based transitions for gold disk color
