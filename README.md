@@ -27,11 +27,17 @@ I know this is ugly, but the 404 is simper than retruning eg a 1px transparent t
 
 As parcels get claimed, there will be fewer 404s and they will go away completely when the kickstarter campaign is sells out (which will be very soon :) ). 
 
+# notes on stylesheet
+
+I started off with everything configurtable in the stylesheet so other pewople with better taste than me could fix things up. But Leaflet has lots of places where you can not easily use CSS to change things, so I kinda abandoned the CSS and now the styling is spread around. Sorry. 
+
 
 # layout
 
 `/docs` is the static site
 - `/docs/world` has all of the tiles in various zoom levels, following the openmaps convention.
+
+This setup lets us serve the tiles statically from GitHub pages or locally. 
 
 # Bootstraping from old system
 

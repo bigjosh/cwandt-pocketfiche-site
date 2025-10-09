@@ -479,19 +479,6 @@
   });
   
   circleLayer.addLayer(circle);
-  
-  // Create a toggle layer for switching between bright and toned-down colors
-  const toneDownLayer = L.layerGroup();
-  toneDownLayer.onAdd = function(map) {
-    // Switch to toned-down color
-    circle._path.classList.remove('gold-disk-circle');
-    circle._path.classList.add('gold-disk-circle-toned');
-  };
-  toneDownLayer.onRemove = function(map) {
-    // Switch back to bright color
-    circle._path.classList.remove('gold-disk-circle-toned');
-    circle._path.classList.add('gold-disk-circle');
-  };
 
   // --- Create grid lines
 
@@ -875,14 +862,12 @@
   };
   
   const overlayLayers = {
-    "Gold Disk": circleLayer,
-    "Tone it down": toneDownLayer,
     "Grid Lines": gridLayer,
     //"Solar System": solarSystemLayer,   // peope should discover this, not see it in the menu!
     //"Parcel Labels": labelsLayer,   // Needs work
-    "Status Display": statusControlLayer,
+    // "Status Display": statusControlLayer,    // not really neeeded anymore now that this info is in the URL
     "Scale Bar": scaleControlLayer,
-    "Debug Tiles": debugLayer,
+    //"Debug Tiles": debugLayer,
   };
   
   // Create the layers control once (layers can be added dynamically later)
