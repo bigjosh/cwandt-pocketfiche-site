@@ -1,11 +1,37 @@
 # cwandt-pocketfiche-site
 Web app to browse CW&T pocketfiche parcels
 
+# User tldr;
+
+This tool displays the [CW&T pocketfiche parcels](https://www.kickstarter.com/projects/cwandt/pocket-fiche/description) as they will look on the actual tiny fiche. 
+
+You can zoom in and out use the zoom control in the upper-left corner, or a scroll wheel, or pinch to zoom on a touch device. 
+
+You can pan by clicking and dragging on the map.
+
+You can select which layers you want to see using the layer control in the upper-right coner.
+
+To highlight a specific parcel, you can add a `?parcel=parcel_id` query parameter to the URL. 
+
+The URL is updated to always reflect the current state of the map, so you can share or save that URL to capture the current view. It is meant to be like a google maps URL, except the `@` is a param ratehr than part of the path. This is so the site can be served statically. 
+
+The coordinates start with "@" and are in lat,long map units, and @0,0 is at the center of the disk. The coordinates are followed by the radius of a view circle that will be fit into the display window. 
+
+If only a parcel is specified, the map will center on that parcel and zoom in to show the parcel in detail. If both a parcel and a view are specified, the parcel will be highlighted, but the view will be used to center the map and set the zoom level.
+
+# notes on those 404s
+
+For now, if the clinet requests a tile that is not on the server I let it just return a 404 error. This happens due to not claimed parcels. 
+
+I know this is ugly, but the 404 is simper than retruning eg a 1px transparent tile. I used to have the client download a list of available tiles on startup, but that just adds delay to the startup process and adds complexity. 
+
+As parcels get claimed, there will be fewer 404s and they will go away completely when the kickstarter campaign is sells out (which will be very soon :) ). 
+
+
 # layout
 
 `/docs` is the static site
-- `/docs/tiles` is the tile images that are loaded laziliy by Leaflet on the client
-- `/docs/map.json` is the map of which tiles are claimed so the client does not waste time requesting empty tiles
+- `/docs/world` has all of the tiles in various zoom levels, following the openmaps convention.
 
 # Bootstraping from old system
 

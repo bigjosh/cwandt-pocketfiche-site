@@ -287,15 +287,21 @@
       
       this._container = container;
       
-      // Update on zoom and moveend
-      map.on('zoom move', this._update, this);
+      // Hide control at the start of zoom, update and show after zoom/move completes
+      map.on('zoomstart', this._hide, this);
+      map.on('zoomend moveend', this._update, this);
       this._update();
       
       return container;
     },
 
     onRemove: function(map) {
-      map.off('zoom move', this._update, this);
+      map.off('zoomstart', this._hide, this);
+      map.off('zoomend moveend', this._update, this);
+    },
+
+    _hide: function() {
+      this._container.style.visibility = 'hidden';
     },
 
     _update: function() {
@@ -397,6 +403,9 @@
       // Update the container width and text
       this._container.style.width = barWidthPixels + 'px';
       this._scaleText.textContent = label;
+      
+      // Show the control after updating (hidden during zoomstart)
+      this._container.style.visibility = 'visible';
     }
   });
   
