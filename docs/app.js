@@ -82,18 +82,25 @@
   }
 
   // Parse a coordinate string like 'H4' or 'AA12'
+  // Coordinate system: A1 is in the lower-left corner
+  // - Letters (A, B, ..., Z, AA, AB, ...) represent COLUMNS, incrementing left-to-right
+  // - Numbers (1, 2, 3, ...) represent ROWS, incrementing bottom-to-top
+  // Tolerates an optional embedded ":" to match the format used in the kickstarter campaign (ok to have: https://stackoverflow.com/questions/2053132/is-a-colon-safe-for-friendly-url-use)
   function parseCoord(coord) {
-    const m = /^([A-Z]+)(\d+)$/.exec(coord);
+    // Make case-insensitive by converting to uppercase
+    const normalizedCoord = coord.toUpperCase().trim().replace(':', '');
+    const m = /^([A-Z]+)(\d+)$/.exec(normalizedCoord);
     if (!m) return null;
     const letters = m[1];
-    const colNum = parseInt(m[2], 10);
-    if (!Number.isFinite(colNum)) return null;
-    const rowIdx = lettersToIndex(letters);
-    if (rowIdx == null) return null;
+    const rowNum = parseInt(m[2], 10);
+    if (!Number.isFinite(rowNum)) return null;
+    const colIdx = lettersToIndex(letters);
+    if (colIdx == null) return null;
 
-    // Numeric part is 1-based in keys (A1 is top-left). Convert to 0-based index.
-    const colIdx = colNum - 1;
-    return { row: rowIdx, col: colIdx, letters, number: colNum };
+    // Letters map to column index (horizontal position)
+    // Numbers map to row index (vertical position, 1-based). Convert to 0-based.
+    const rowIdx = rowNum - 1;
+    return { row: rowIdx, col: colIdx, letters, number: rowNum };
   }
 
   // Build image URL for a coordinate key (e.g., 'H4' -> tiles/tile-H4.png)
@@ -787,8 +794,7 @@
     "Debug Tiles": debugLayer,
   };
   
-  // Add the layers control to the map
-  L.control.layers(baseLayers, overlayLayers, { position: 'topright' , hideSingleBase: true }).addTo(map);
+  // Layer control will be added after checking for parcel URL parameter
   
   // Add default layers - gold disk first (behind), then parcels (on top)
   circleLayer.addTo(map);
@@ -799,6 +805,82 @@
   
   // Update solar system visibility on zoom
   map.on('zoom zoomend', updateSolarSystemVisibility);
+
+  // --- Parcel Highlighting from URL Parameter
+  // Check for ?parcel=AA4 style parameter in URL and highlight if present
+  
+  const urlParams = new URLSearchParams(window.location.search);
+  const highlightParcelId = urlParams.get('parcel');
+  
+  if (highlightParcelId) {
+    const parsed = parseCoord(highlightParcelId);
+    
+    if (parsed && parsed.row >= 0 && parsed.row < PARCEL_ROWS && parsed.col >= 0 && parsed.col < PARCEL_COLS) {
+      // Convert row/col to centered parcel coordinates
+      const parcelX = parsed.col - PARCEL_COLS / 2;
+      const parcelY = parsed.row - PARCEL_ROWS / 2;
+      
+      // Calculate the parcel bounds in map units
+      const x0 = parcelX * mapunit_per_parceltile;
+      const y0 = parcelY * mapunit_per_parceltile;
+      const x1 = x0 + mapunit_per_parceltile;
+      const y1 = y0 + mapunit_per_parceltile;
+      
+      // Create a rectangle with blue 3px border to highlight the parcel
+      const highlightRect = L.rectangle(
+        [[y0, x0], [y1, x1]],  // Leaflet expects [[lat, lng], [lat, lng]]
+        {
+          color: '#0066ff',      // Blue border
+          weight: 3,             // 3px border width
+          fillOpacity: 0,        // No fill, just the border
+          interactive: false,    // Don't block map interactions
+          renderer: svgRenderer  // Use SVG renderer for crisp lines
+        }
+      );
+      
+      // Create a layer group for the highlight
+      const highlightLayer = L.layerGroup();
+      highlightLayer.addLayer(highlightRect);
+      
+      // Add the highlight layer to the map by default
+      highlightLayer.addTo(map);
+      
+      // Add to overlay layers control with dynamic label
+      overlayLayers[`Highlight ${highlightParcelId}`] = highlightLayer;
+      
+      // Update the layers control to include the new highlight layer
+      // We need to recreate the control to include the new layer
+      const layersControl = L.control.layers(baseLayers, overlayLayers, { 
+        position: 'topright', 
+        hideSingleBase: true 
+      }).addTo(map);
+      
+      // Calculate bounds with 10% margin around the parcel
+      const parcelWidth = mapunit_per_parceltile;
+      const parcelHeight = mapunit_per_parceltile;
+      const margin = 0.1;  // 10% margin
+      
+      const boundsX0 = x0 - parcelWidth * margin;
+      const boundsY0 = y0 - parcelHeight * margin;
+      const boundsX1 = x1 + parcelWidth * margin;
+      const boundsY1 = y1 + parcelHeight * margin;
+      
+      const highlightBounds = L.latLngBounds(
+        [[boundsY0, boundsX0],  // Southwest corner
+         [boundsY1, boundsX1]]   // Northeast corner
+      );
+      
+      // Fit the map to show the highlighted parcel with margin
+      map.fitBounds(highlightBounds);
+      
+      console.log(`Highlighting parcel ${highlightParcelId} at row ${parsed.row}, col ${parsed.col}`);
+    } else {
+      console.warn(`Invalid parcel ID in URL: ${highlightParcelId}`);
+    }
+  } else {
+    // No parcel parameter, add the layers control without highlight
+    L.control.layers(baseLayers, overlayLayers, { position: 'topright' , hideSingleBase: true }).addTo(map);
+  }
 
   // --- Zoom-based transitions for gold disk color
   // As we zoom out past -2, transition disk from gold (fiche) to orange (sun)
