@@ -1035,7 +1035,10 @@
       highlightVisible = true; // Track that it's visible
       
       // Dynamically add the highlight layer to the existing layers control
-      layersControl.addOverlay(highlightLayer, `Highlight ${highlightParcelId}`);
+
+      const parcelLayerURL = `/?parcel=${highlightParcelId}`;
+
+      layersControl.addOverlay(highlightLayer, `Highlight <a href="${parcelLayerURL}">${highlightParcelId}</a>`);
 
       console.log(`Highlighting parcel ${highlightParcelId} at row ${parsed.row}, col ${parsed.col}`);
 
