@@ -622,18 +622,18 @@
     const orbitRadiusKm = planet.orbitKm * SCALE_FACTOR * ORBIT_COMPRESSION;
     const orbitRadiusMapUnits = (orbitRadiusKm * 1e9) / UM_PER_MAPUNIT; // Convert km to micrometers, then to map units
     
-    // Create orbit path (dim grey circle)
-    const orbitPath = L.circle([0, 0], {
-      radius: orbitRadiusMapUnits,
-      color: '#1f1f1f',
-      fillOpacity: 0,
-      weight: 2,
-      opacity: 0.5,
-      interactive: false,
-      pane: 'solarSystemPane',
-      renderer: svgRenderer
-    });
-    solarSystemLayer.addLayer(orbitPath);
+    // // Create orbit path (dim grey circle)
+    // const orbitPath = L.circle([0, 0], {
+    //   radius: orbitRadiusMapUnits,
+    //   color: '#1f1f1f',
+    //   fillOpacity: 0,
+    //   weight: 2,
+    //   opacity: 0.5,
+    //   interactive: false,
+    //   pane: 'solarSystemPane',
+    //   renderer: svgRenderer
+    // });
+    // solarSystemLayer.addLayer(orbitPath);
     
     // Calculate planet display radius (relative to Earth, visible at zoom -4)
     const planetRadiusMapUnits = BASE_PLANET_RADIUS_MAPUNITS * planet.size;
@@ -706,6 +706,41 @@
       map.removeLayer(solarSystemLayer);
       solarSystemVisible = false;
       animationRunning = false;
+    }
+  }
+  
+  // Grid layer visibility: hide when zoomed out past parcel layer minZoom (-2)
+  let gridVisible = false;
+  
+  function updateGridVisibility() {
+    const zoom = map.getZoom();
+    const shouldBeVisible = zoom >= -2; // Show when at or above parcel minZoom
+    
+    if (shouldBeVisible && !gridVisible) {
+      gridLayer.addTo(map);
+      gridVisible = true;
+    } else if (!shouldBeVisible && gridVisible) {
+      map.removeLayer(gridLayer);
+      gridVisible = false;
+    }
+  }
+  
+  // Parcel highlight visibility: hide when zoomed out past parcel layer minZoom (-2)
+  let highlightLayer = null; // Will be set if parcel parameter is present
+  let highlightVisible = false;
+  
+  function updateHighlightVisibility() {
+    if (!highlightLayer) return; // No highlight layer to manage
+    
+    const zoom = map.getZoom();
+    const shouldBeVisible = zoom >= -2; // Show when at or above parcel minZoom
+    
+    if (shouldBeVisible && !highlightVisible) {
+      highlightLayer.addTo(map);
+      highlightVisible = true;
+    } else if (!shouldBeVisible && highlightVisible) {
+      map.removeLayer(highlightLayer);
+      highlightVisible = false;
     }
   }
   
@@ -818,8 +853,29 @@
   parcelsLayer.addTo(map);
   scaleControlLayer.addTo(map);
   
-  // Update solar system visibility on zoom
-  map.on('zoom zoomend', updateSolarSystemVisibility);
+  // Grid layer is added/removed automatically based on zoom (matches parcel layer minZoom)
+  updateGridVisibility(); // Initialize grid visibility
+  
+  // Update layer visibility only after zoom completes (not during animation)
+  map.on('zoomend', updateSolarSystemVisibility);
+  map.on('zoomend', updateGridVisibility);
+  map.on('zoomend', updateHighlightVisibility);
+  
+  // Track when user manually adds/removes layers via layer control
+  map.on('overlayadd', function(e) {
+    if (e.name === 'Grid Lines') {
+      gridVisible = true;
+    } else if (e.name.startsWith('Highlight ')) {
+      highlightVisible = true;
+    }
+  });
+  map.on('overlayremove', function(e) {
+    if (e.name === 'Grid Lines') {
+      gridVisible = false;
+    } else if (e.name.startsWith('Highlight ')) {
+      highlightVisible = false;
+    }
+  });
 
   // --- URL-based View Sharing
   // Update URL to reflect current map view (similar to Google Maps)
@@ -941,11 +997,12 @@
       );
       
       // Create a layer group for the highlight
-      const highlightLayer = L.layerGroup();
+      highlightLayer = L.layerGroup(); // Use global variable
       highlightLayer.addLayer(highlightRect);
       
       // Add the highlight layer to the map by default
       highlightLayer.addTo(map);
+      highlightVisible = true; // Track that it's visible
       
       // Dynamically add the highlight layer to the existing layers control
       layersControl.addOverlay(highlightLayer, `Highlight ${highlightParcelId}`);
