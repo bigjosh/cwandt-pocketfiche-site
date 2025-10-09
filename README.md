@@ -109,6 +109,24 @@ The middle of the "world" in the the intersecttion of the center 2x2 of parcels 
 S20 T20
 S19 T19
 
+We set the center of the world to be latlong(0,0). 
+
+### Length calculations
+
+At zoom=6, one tile pixel = 1 parcel pixel , and 1 parcel pixel = 1um. 
+
+At zoom=7, one tile pixel = 0.5 parcel pixel , and 1 parcel pixel = 1um, so 1 tile pixel = 0.5um. 
+
+At zoom=0 one tile pixel = 1 * 2^6 parcel pixels, and 1 parcel pixel = 1um, so 1 tile pixel = 64um. 
+
+At zoom=0, the world is 500 pixels wide, so 1 map unit = 64um. 
+
+500 * 64um = 32000um = 32mm, checks out!
+
+But our fische is only 25mm wide, so the size of the encompassing circle in mapo untis is 25mm / 64um = 0.39
+
+
+size_in_um 
 
 Which maps to coords...
 

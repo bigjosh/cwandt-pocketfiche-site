@@ -3,7 +3,7 @@
 Create a map.json from the tiles/ directory.
 
 Scans files like tiles/tile-H4.png and produces a JSON object mapping
-coordinates using 1-based numeric keys (e.g., "H5" for col index 4) so it can be directly
+coordinates (e.g., "H4") to { "claimed": true } so it can be directly
 used as a JS dictionary/object.
 
 Additionally, it appends entries for ALL unclaimed tiles whose centers lie

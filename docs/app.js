@@ -187,15 +187,17 @@
 
 
   // ---- Map init ----
+  // Explicitly create SVG renderer to ensure vector rendering
+  const svgRenderer = L.svg();
+  
   const map = L.map('map', {
     crs: CRS_CENTERED,
-    // minZoom: -4, 
-    // maxZoom: 5,
     minZoom: -6,
     maxZoom: 10,
     zoomControl: true,
-    attributionControl: false
-    // Stick with SVG so that our circles will look sharp at all zoom sizes
+    attributionControl: false,
+    renderer: svgRenderer,  // Force SVG rendering for all paths
+    preferCanvas: false     // Explicitly disable Canvas
   });
 
 
@@ -487,6 +489,139 @@
     }
   }
 
+  // --- Solar System Layer
+  // Treat the gold disk as the sun and add planet orbits at scale
+  
+  // Create custom pane for solar system (above gold disk, below tiles)
+  map.createPane('solarSystemPane');
+  map.getPane('solarSystemPane').style.zIndex = 175; // Between goldDisk (150) and tiles (200)
+  
+  const solarSystemLayer = L.layerGroup();
+  
+  // Solar system constants
+  const SUN_DIAMETER_KM = 1392000; // Sun's diameter in km
+  const DISK_DIAMETER_KM = disk_diameter_um / 1e9; // Convert disk from micrometers to km
+  const SCALE_FACTOR = DISK_DIAMETER_KM / SUN_DIAMETER_KM; // Scale factor for orbits
+  
+  // NOTE: At true scale, the solar system is HUGE compared to the sun.
+  // Mercury's orbit alone would be 40x the sun's diameter!
+  // Apply an additional scale factor to fit orbits in the visible area.
+  // With a factor of 0.01, orbits fit nicely: Mercury at ~160 units, Neptune at ~1260 units.
+  const ORBIT_COMPRESSION = 0.5; // Compress orbits to make them visible
+  
+  // Planet data: orbital radius (million km), relative size, color, orbital period (Earth years)
+  const planets = [
+    { name: 'Mercury', orbitKm: 57.9e6, size: 0.38, color: '#8C7853', period: 0.24 },
+    { name: 'Venus', orbitKm: 108.2e6, size: 0.95, color: '#FFC649', period: 0.62 },
+    { name: 'Earth', orbitKm: 149.6e6, size: 1.0, color: '#4A90E2', period: 1.0 },
+    { name: 'Mars', orbitKm: 227.9e6, size: 0.53, color: '#E27B58', period: 1.88 },
+    { name: 'Jupiter', orbitKm: 778.5e6, size: 11.2, color: '#C88B3A', period: 11.86 },
+    { name: 'Saturn', orbitKm: 1434e6, size: 9.45, color: '#FAD5A5', period: 29.46 },
+    { name: 'Uranus', orbitKm: 2871e6, size: 4.0, color: '#4FD0E0', period: 84.01 },
+    { name: 'Neptune', orbitKm: 4495e6, size: 3.88, color: '#4166F5', period: 164.79 }
+  ];
+  
+  // Calculate base planet size (visible at zoom -4, scaled relatively)
+  // At zoom -4, we want planets to be visible, so let's use map units
+  const BASE_PLANET_RADIUS_MAPUNITS = 8; // Increased for better visibility
+  
+  // Store planet markers for animation
+  const planetMarkers = [];
+  
+  planets.forEach(planet => {
+    // Calculate orbit radius in map units
+    const orbitRadiusKm = planet.orbitKm * SCALE_FACTOR * ORBIT_COMPRESSION;
+    const orbitRadiusMapUnits = (orbitRadiusKm * 1e9) / UM_PER_MAPUNIT; // Convert km to micrometers, then to map units
+    
+    // Create orbit path (dim grey circle)
+    const orbitPath = L.circle([0, 0], {
+      radius: orbitRadiusMapUnits,
+      color: '#888888',
+      fillOpacity: 0,
+      weight: 2,
+      opacity: 0.5,
+      interactive: false,
+      pane: 'solarSystemPane',
+      renderer: svgRenderer
+    });
+    solarSystemLayer.addLayer(orbitPath);
+    
+    // Calculate planet display radius (relative to Earth, visible at zoom -4)
+    const planetRadiusMapUnits = BASE_PLANET_RADIUS_MAPUNITS * planet.size;
+    
+    // Create planet marker (will be animated)
+    const planetCircle = L.circle([0, orbitRadiusMapUnits], {
+      radius: planetRadiusMapUnits,
+      color: planet.color,
+      fillColor: planet.color,
+      fillOpacity: 0.9,
+      weight: 1,
+      opacity: 1,
+      interactive: false,
+      pane: 'solarSystemPane',
+      renderer: svgRenderer
+    });
+    solarSystemLayer.addLayer(planetCircle);
+    
+    // Store for animation
+    planetMarkers.push({
+      circle: planetCircle,
+      orbitRadius: orbitRadiusMapUnits,
+      period: planet.period, // Earth years per orbit
+      name: planet.name
+    });
+  });
+  
+  // Animation: planets complete orbit in 1 minute (60 seconds)
+  // Earth takes 60 seconds, other planets scale by their period
+  const startTime = Date.now();
+  let animationRunning = false;
+  
+  function animatePlanets() {
+    if (!animationRunning) return; // Stop if layer was removed
+    
+    const elapsed = (Date.now() - startTime) / 1000; // seconds elapsed
+    
+    planetMarkers.forEach(planet => {
+      // Earth completes 1 orbit in 60 seconds
+      // Other planets: angle = (elapsed / 60) * (1 / planet.period) * 2π
+      const earthOrbitsPerSecond = 1 / 60; // Earth completes 1 orbit per 60 seconds
+      const planetOrbitsPerSecond = earthOrbitsPerSecond / planet.period;
+      const angle = elapsed * planetOrbitsPerSecond * 2 * Math.PI;
+      
+      // Calculate position (counterclockwise from right/east)
+      const x = planet.orbitRadius * Math.cos(angle);
+      const y = planet.orbitRadius * Math.sin(angle);
+      
+      // Update planet position
+      planet.circle.setLatLng([y, x]);
+    });
+    
+    requestAnimationFrame(animatePlanets);
+  }
+  
+  // Start/stop animation when layer is added/removed
+  // Store original methods
+  const originalOnAdd = solarSystemLayer.onAdd.bind(solarSystemLayer);
+  const originalOnRemove = solarSystemLayer.onRemove.bind(solarSystemLayer);
+  
+  solarSystemLayer.onAdd = function(map) {
+    // Call parent's onAdd to actually add layers to map
+    originalOnAdd(map);
+    
+    if (!animationRunning) {
+      animationRunning = true;
+      animatePlanets();
+    }
+  };
+  
+  solarSystemLayer.onRemove = function(map) {
+    animationRunning = false;
+    
+    // Call parent's onRemove to actually remove layers
+    originalOnRemove(map);
+  };
+
   // --- Parcel Labels Layer
   // Create labels for each parcel (A1 in lower left to AL38 in upper right)
   
@@ -554,6 +689,7 @@
     "Gold Disk": circleLayer,
     "Tone it down": toneDownLayer,
     "Grid Lines": gridLayer,
+    //"Solar System": solarSystemLayer,   // peope should discover this, not see it in the menu!
     //"Parcel Labels": labelsLayer,   // Needs work
     "Status Display": statusControlLayer,
     "Scale Bar": scaleControlLayer,
@@ -565,6 +701,7 @@
   
   // Add default layers - gold disk first (behind), then parcels (on top)
   circleLayer.addTo(map);
+  solarSystemLayer.addTo(map);
   parcelsLayer.addTo(map);
   scaleControlLayer.addTo(map);
 
