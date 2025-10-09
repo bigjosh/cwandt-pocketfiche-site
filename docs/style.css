@@ -23,8 +23,15 @@ body {
 }
 
 /* This is the circle that shows the claimable radius. All the parcels are inside this circle. */
-.claimable-circle {
-  fill: #b0b0ff;    /* I feel like subtle sky blue is a good color for the wide open teritories */
-  stroke: #ff8c00;  /* Orange color? I just thing it should not be black becuase it is meta info. Only the parcel data itself should be black and white */
-  stroke-width: 3px;  /* To taste? */
+.gold-disk-circle {
+  fill: #ff9412;  /* Orange color? I just thing it should not be black becuase it is meta info. Only the parcel data itself should be black and white */
+  stroke: none;
+
+}
+
+/* optional grid lines */
+
+.grid-line {
+  stroke: rgba(19, 211, 61, 0.5);    /* should be 50% transparent so we can see the parcel data below */
+  stroke-width: 1px;                   /* Should always be 1px at all zoom levels */
 }

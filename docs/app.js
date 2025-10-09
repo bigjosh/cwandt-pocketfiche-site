@@ -14,34 +14,43 @@
 
 (() => {
   // ---- Constants matching the server/grid ----
+  // Note that all sizes are one dimensional units for now since everything is square. 
 
-  const TILE_SIZE = 500;       // Each tile is 500x500 pixels
-  const COLS = 38;             // Total columns in the grid
-  const ROWS = 38;             // Total rows in the grid
+  // --- Facts from the kickstarter campaign
+  const PIXELS_PER_PARCELTILE = 500             // This is how big the parcel images from users are
+  const PARCEL_COLS = 38;                       // Total columns in the grid
+  const PARCEL_ROWS = 38;                       // Total rows in the grid
 
+  // Defined by the kickstarter campaign (and miles's process)
+  const um_per_parcel_pixel = 1   // Our dot size for the parcel images people give us
+  const disk_diameter_um = 25000  // 25mm
 
-  // Calculate um per mapunit. We will use this for drawing physiocal sized objects on the map using map units.
-  const UM_PER_MAPUNIT = (() => {
-
-    // We picked our zooms to make 1 tile pixel = 1 parcel pixel at zoom=6
-    const um_per_tilepixelz6 = 1   
-
-    // We also defined 1 mapunit to be 1 tile wide at zoom=0
-    const mapunit_per_tilepixel_z0 = 1
-
-    // Just math, every zoom level is double the size of the previous
-    const tilepixelz6_per_tilepixelz0 = Math.pow(2,6-0)
-
-    const tilepixelz6_per_mapunit = tilepixelz6_per_tilepixelz0 * mapunit_per_tilepixel_z0
-
-    // This is the answer we need 
-    return um_per_tilepixelz6 * tilepixelz6_per_mapunit
-
-  })()
+  // I picked this so that the most intrinsicalkly zoomed tile would be exactly one parcel
+  // which also makes it be pixel perfect with no scaling needed. 
+  const TILE_SIZE = PIXELS_PER_PARCELTILE;       
 
 
-  // This parameter is straight from the kickstarter campaign
-  const CLAIMABLE_RADIUS_UM = 25000
+  // --- Some policy choices
+
+  // I picked this becuase it is the lowest zoom level that lets us still fit a full world into a single tile at zoom 0
+  // at zoom 6, 1 parcel = 1 tile. pixel for pixel match.
+  const parcel_zoom = 6
+  
+  // I picked this becuase this is the most zoomed out level that needs a single tile to cover the whole world
+  // Note that the disk is actually a little smaller than the world. The disk just needs to completely fit into a single tile. 
+  const world_zoom = 0
+
+  // How big in real size is, say, a world tile pixel compared to pixel in a parcel tile pixel?
+  const parcels_per_world_ratio = Math.pow(2,parcel_zoom-world_zoom)  
+
+  // We defined 1 mapunit to be 1 pixel wide at world zoom
+  const mapunit_per_worldtile = TILE_SIZE
+
+  // --- calculate constants to help with layout
+
+  const mapunit_per_parceltile = mapunit_per_worldtile / parcels_per_world_ratio 
+
+  const UM_PER_MAPUNIT =  (um_per_parcel_pixel * PIXELS_PER_PARCELTILE) / mapunit_per_parceltile 
 
   console.log("UM_PER_MAPUNIT", UM_PER_MAPUNIT);
 
@@ -314,23 +323,48 @@
     updateWhenIdle: true,
   }).addTo(map);      
 
+
+  // --- Gold disk circle
+  
   // Create an overlay layer with a circle that shows the claimable radius
   // The color and width of the circle are defined in style.css
   
   const circleLayer = L.layerGroup().addTo(map);
   
-  const innerDiameterMicrometers = CLAIMABLE_RADIUS_UM;
+  const innerDiameterMicrometers = disk_diameter_um;
   const innerRadiusMicrometers = innerDiameterMicrometers / 2;
   const radiusMapUnits = innerRadiusMicrometers / UM_PER_MAPUNIT;
   
   // Create circle centered at origin (0, 0)
   const circle = L.circle([0, 0], {
     radius: radiusMapUnits,
-    className: 'claimable-circle',
+    className: 'gold-disk-circle',
     interactive: false  // Don't capture mouse events
   });
   
   circleLayer.addLayer(circle);
+
+  // --- Create grid lines
+
+  const gridLayer = L.layerGroup().addTo(map);
+
+  
+  // We need to use map units for the grid lines
+  // We want spacing between lines to be 1 tile at zoom 6 (the definition of zoom 6 is 1 tile is one parcel)
+
+
+  const GRID_SPACING_MAPUNITS = TILE_SIZE_MAPUNITS;
+
+
+  // vertical lines
+  for (let  i= 1; i < PARCEL_COLS/2; i += 1) {
+    const line = L.polyline([[ 0 - (PARCEL_COLS/2) +( TILE_SIZE * i), -250], [i, 250]], { className: 'grid-line' });
+    gridLayer.addLayer(line);
+  }
+  for (let y = -250; y <= 250; y += 50) {
+    const line = L.polyline([[-250, y], [250, y]], { className: 'grid-line' });
+    gridLayer.addLayer(line);
+  }
 
 
   // const parcels = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' ,{
@@ -369,7 +403,7 @@
   map.on('click', (e) => {
     const col = Math.floor(e.latlng.lng / TILE_SIZE);
     const row = Math.floor(e.latlng.lat / TILE_SIZE);
-    if (row >= 0 && row < ROWS && col >= 0 && col < COLS) {
+    if (row >= 0 && row < PARCEL_ROWS && col >= 0 && col < PARCEL_COLS) {
       const coord = `${indexToLetters(row)}${col + 1}`;
       console.log('Clicked tile:', coord, { row, col });
     }
