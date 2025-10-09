@@ -235,8 +235,8 @@
     onRemove() { this._off && this._off(); }
   });
 
-  // add it
-  map.addControl(new StatusControl({ position: 'bottomleft' }));
+  // Create the control but don't add it yet - we'll add it via layer control
+  const statusControl = new StatusControl({ position: 'bottomleft' });
 
   // Custom scale bar that shows correct scale for our tiny world
   // At zoom 6: 1 pixel = 1 µm, doubling every zoom level. 
@@ -285,7 +285,8 @@
     }
   });
   
-  map.addControl(new MicrometerScale({ position: 'bottomright', imperial: false }));
+  // Create the scale control but don't add it yet - we'll add it via layer control
+  const scaleControl = new MicrometerScale({ position: 'bottomright', imperial: false });
 
   const DebugTileLayer = L.TileLayer.extend({
     getTileUrl: function (coords) {
@@ -297,7 +298,7 @@
 
 
   // Debug tile layer shows coords in inside each tile
-  const parcels = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' , {       
+  const debugLayer = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' , {       
       tileSize: TILE_SIZE,  
       bounds: worldBounds,
       minNativeZoom: 0,
@@ -307,7 +308,7 @@
       noWrap: true,
       updateWhenIdle: true,
 
-  }).addTo(map);
+  });
 
   // This is the main tile layer that shows the parcels. It will intionally fail to load tiles that are not found.
   // I think a 404 is faster than returning a 1px placeholder tile?
@@ -329,7 +330,7 @@
   // Create an overlay layer with a circle that shows the claimable radius
   // The color and width of the circle are defined in style.css
   
-  const circleLayer = L.layerGroup().addTo(map);
+  const circleLayer = L.layerGroup();
   
   const innerDiameterMicrometers = disk_diameter_um;
   const innerRadiusMicrometers = innerDiameterMicrometers / 2;
@@ -346,7 +347,7 @@
 
   // --- Create grid lines
 
-  const gridLayer = L.layerGroup().addTo(map);
+  const gridLayer = L.layerGroup();
   
   // We need to use map units for the grid lines
   // We want spacing between lines to be 1 tile at zoom 6 (the definition of zoom 6 is 1 tile is one parcel)
@@ -355,16 +356,116 @@
 
   const GRID_SPACING_MAPUNITS = mapunit_per_parceltile;
 
-  // vertical lines. 
-  for (let  i= -1 * (PARCEL_COLS/2); i <= PARCEL_COLS/2; i += 1) {
-    const line = L.polyline([[ -250 , i * GRID_SPACING_MAPUNITS ], [250, i * GRID_SPACING_MAPUNITS]], { className: 'grid-line' });
-    gridLayer.addLayer(line);
+  // Use the gold disk radius to constrain grid lines within the circle
+  // For a circle centered at (0,0) with radius R:
+  // - Horizontal line at y=y0 intersects at x = ±√(R² - y0²)
+  // - Vertical line at x=x0 intersects at y = ±√(R² - x0²)
+  // 
+  // Additionally, clip to the shorter of:
+  // 1. Circle boundary (rounded down to nearest parcel boundary)
+  // 2. Edge of 38x38 parcel grid
+  
+  const R = radiusMapUnits; // Circle radius in map units
+  
+  // Grid boundary: 38x38 grid centered at origin means ±19 parcels from center
+  const gridHalfWidth = (PARCEL_COLS / 2) * GRID_SPACING_MAPUNITS;
+  const gridHalfHeight = (PARCEL_ROWS / 2) * GRID_SPACING_MAPUNITS;
+  
+  // Horizontal lines (constant y, varying x)
+  for (let i = -1 * (PARCEL_COLS/2); i <= PARCEL_COLS/2; i += 1) {
+    const y = i * GRID_SPACING_MAPUNITS;
+    
+    // Check if this line intersects the circle
+    if (Math.abs(y) <= R) {
+      // Calculate x intersection with circle: x = ±√(R² - y²)
+      const xCircle = Math.sqrt(R * R - y * y);
+      
+      // Round down to nearest parcel boundary
+      const xCircleParcels = Math.floor(xCircle / GRID_SPACING_MAPUNITS);
+      const xCircleRounded = xCircleParcels * GRID_SPACING_MAPUNITS;
+      
+      // Take the minimum of circle extent and grid extent
+      const xExtent = Math.min(xCircleRounded, gridHalfWidth);
+      
+      // Only draw if extent is positive
+      if (xExtent > 0) {
+        const line = L.polyline([
+          [y, -xExtent],  // Start point (y, -x)
+          [y, xExtent]    // End point (y, +x)
+        ], { className: 'grid-line' });
+        gridLayer.addLayer(line);
+      }
+    }
   }
 
-  for (let  i= -1 * (PARCEL_ROWS/2); i <= PARCEL_ROWS/2; i += 1) {
-    const line = L.polyline([[ i  * GRID_SPACING_MAPUNITS , -250 ], [i * GRID_SPACING_MAPUNITS , 250]], { className: 'grid-line' });
-    gridLayer.addLayer(line);
+  // Vertical lines (constant x, varying y)
+  for (let i = -1 * (PARCEL_ROWS/2); i <= PARCEL_ROWS/2; i += 1) {
+    const x = i * GRID_SPACING_MAPUNITS;
+    
+    // Check if this line intersects the circle
+    if (Math.abs(x) <= R) {
+      // Calculate y intersection with circle: y = abs(sqrt(R^2 - x^2)
+      const yCircle = Math.sqrt(R * R - x * x);
+      
+      // Round down to nearest parcel boundary
+      const yCircleParcels = Math.floor(yCircle / GRID_SPACING_MAPUNITS);
+      const yCircleRounded = yCircleParcels * GRID_SPACING_MAPUNITS;
+      
+      // Take the minimum of circle extent and grid extent
+      const yExtent = Math.min(yCircleRounded, gridHalfHeight);
+      
+      // Only draw if extent is positive
+      if (yExtent > 0) {
+        const line = L.polyline([
+          [-yExtent, x],  // Start point (-y, x)
+          [yExtent, x]    // End point (+y, x)
+        ], { className: 'grid-line' });
+        gridLayer.addLayer(line);
+      }
+    }
   }
+
+  // --- Layer Control
+  // Add layers control for toggling overlay layers
+  
+  const baseLayers = {
+    "Parcels": parcelsLayer
+  };
+  
+  // Create a wrapper layer for the status control so it can be toggled
+  const statusControlLayer = L.layerGroup();
+  statusControlLayer.onAdd = function(map) {
+    map.addControl(statusControl);
+  };
+  statusControlLayer.onRemove = function(map) {
+    map.removeControl(statusControl);
+  };
+  
+  // Create a wrapper layer for the scale control so it can be toggled
+  const scaleControlLayer = L.layerGroup();
+  scaleControlLayer.onAdd = function(map) {
+    map.addControl(scaleControl);
+  };
+  scaleControlLayer.onRemove = function(map) {
+    map.removeControl(scaleControl);
+  };
+  
+  const overlayLayers = {
+    "Gold Disk": circleLayer,
+    "Grid Lines": gridLayer,
+    "Status Display": statusControlLayer,
+    "Scale Bar": scaleControlLayer,
+    "Debug Tiles": debugLayer,
+  };
+  
+  // Add the layers control to the map
+  L.control.layers(baseLayers, overlayLayers, { position: 'topright' , hideSingleBase: true }).addTo(map);
+  
+  // Add default layers (parcels layer is already added, add the gold disk and scale by default)
+  circleLayer.addTo(map);
+  scaleControlLayer.addTo(map);
+
+  
 
 
   // const parcels = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' ,{
