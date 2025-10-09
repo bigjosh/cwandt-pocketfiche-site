@@ -714,7 +714,68 @@
   parcelsLayer.addTo(map);
   scaleControlLayer.addTo(map);
 
+  // --- Zoom-based transitions for gold disk color and parcels opacity
+  // As we zoom out from -1 to -3, fade the disk color and hide the parcels
   
+  // Helper function to interpolate between two hex colors
+  function interpolateColor(color1, color2, factor) {
+    // Parse hex colors
+    const c1 = parseInt(color1.slice(1), 16);
+    const c2 = parseInt(color2.slice(1), 16);
+    
+    const r1 = (c1 >> 16) & 0xff;
+    const g1 = (c1 >> 8) & 0xff;
+    const b1 = c1 & 0xff;
+    
+    const r2 = (c2 >> 16) & 0xff;
+    const g2 = (c2 >> 8) & 0xff;
+    const b2 = c2 & 0xff;
+    
+    // Interpolate
+    const r = Math.round(r1 + (r2 - r1) * factor);
+    const g = Math.round(g1 + (g2 - g1) * factor);
+    const b = Math.round(b1 + (b2 - b1) * factor);
+    
+    // Convert back to hex
+    return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+  }
+  
+  function updateZoomTransitions() {
+    const zoom = map.getZoom();
+    
+    // Calculate transition factor (0 at zoom -1, 1 at zoom -3)
+    // todo: use a start and end const for the zoom range
+    let factor = 0;
+    if (zoom <= -3) {
+      factor = 1;
+    } else if (zoom >= 0) {
+      factor = 0;
+    } else {
+      // Linear interpolation between -1 and -3
+      factor = (0 - zoom) / 2;  // (zoom - (-1)) / (-3 - (-1)) reversed
+    }
+    
+    // Interpolate disk color from gold-disk-circle to gold-disk-circle-cwt
+    const color1 = '#af8149';  // gold-disk-circle
+    const color2 = '#ff9412';  // gold-disk-circle-cwt
+    const newColor = interpolateColor(color1, color2, factor);
+    
+    // Update the circle fill color directly
+    if (circle._path) {
+      circle._path.style.fill = newColor;
+    }
+    
+    // Fade parcels layer opacity (1 at zoom -1, 0 at zoom -3)
+    const opacity = 1 - factor;
+    parcelsLayer.setOpacity(opacity);
+  }
+  
+  // Initialize transitions
+  updateZoomTransitions();
+  
+  // Update on zoom
+  map.on('zoom', updateZoomTransitions);
+  map.on('zoomend', updateZoomTransitions);
 
 
   // const parcels = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' ,{
