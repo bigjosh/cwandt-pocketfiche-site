@@ -487,6 +487,44 @@
     }
   }
 
+  // --- Parcel Labels Layer
+  // Create labels for each parcel (A1 in lower left to AL38 in upper right)
+  
+  const labelsLayer = L.layerGroup();
+  
+  // Loop through all parcels in the 38x38 grid
+  for (let row = 0; row < PARCEL_ROWS; row++) {
+    for (let col = 0; col < PARCEL_COLS; col++) {
+      // Generate parcel identifier (e.g., "A1", "B12", "AL38")
+      const label = `${indexToLetters(row)}${col + 1}`;
+      
+      // Convert row/col to centered parcel coordinates
+      const parcelX = col - PARCEL_COLS / 2;
+      const parcelY = row - PARCEL_ROWS / 2;
+      
+      // Calculate position of lower-left corner of parcel in map units
+      // Remember: y-axis is flipped, so "lower" means smaller y value
+      const x = parcelX * mapunit_per_parceltile;
+      const y = parcelY * mapunit_per_parceltile;
+      
+      // Create a DivIcon for the text label
+      const icon = L.divIcon({
+        className: 'parcel-label',
+        html: label,
+        iconSize: null,  // Let CSS control size
+        iconAnchor: [0, 0]  // Anchor at top-left of icon (will be positioned at lower-left of parcel)
+      });
+      
+      // Create marker at the lower-left corner of the parcel
+      const marker = L.marker([y, x], {
+        icon: icon,
+        interactive: false  // Don't block map interactions
+      });
+      
+      labelsLayer.addLayer(marker);
+    }
+  }
+
   // --- Layer Control
   // Add layers control for toggling overlay layers
   
@@ -516,6 +554,7 @@
     "Gold Disk": circleLayer,
     "Tone it down": toneDownLayer,
     "Grid Lines": gridLayer,
+    //"Parcel Labels": labelsLayer,   // Needs work
     "Status Display": statusControlLayer,
     "Scale Bar": scaleControlLayer,
     "Debug Tiles": debugLayer,

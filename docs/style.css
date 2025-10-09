@@ -54,3 +54,18 @@ body {
   color: #000;                                      /* Black text for better contrast on cyan background */
   text-shadow: 0 0 2px rgba(255, 255, 255, 0.3);  /* Subtle glow for depth */
 }
+
+/* Parcel label styling */
+.parcel-label {
+  font-family: 'Courier New', 'Consolas', monospace;
+  font-size: 14px;
+  font-weight: bold;
+  color: #0ca838;                                   /* Darker green that complements grid lines */
+  text-shadow: 
+    -1px -1px 0 #000,  
+     1px -1px 0 #000,
+    -1px  1px 0 #000,
+     1px  1px 0 #000;                               /* Black outline for readability */
+  white-space: nowrap;
+  pointer-events: none;                             /* Don't block clicks on parcels */
+}
