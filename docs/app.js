@@ -545,7 +545,7 @@
     // Create orbit path (dim grey circle)
     const orbitPath = L.circle([0, 0], {
       radius: orbitRadiusMapUnits,
-      color: '#888888',
+      color: '#1f1f1f',
       fillOpacity: 0,
       weight: 2,
       opacity: 0.5,
