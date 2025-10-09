@@ -425,7 +425,7 @@
     bounds: worldBounds,
     minNativeZoom: 0,   // The native sooms Are driven by how many tile sizes we have on the server (driven in build_world.py)
     maxNativeZoom: 6,   // This range covers 1 parcel pixel=1 tile  pixel out to where all parcels fit in a single tile. 
-    minZoom: -7, 
+    minZoom: -2,        // Hide parcels when zoomed out to solar system scale
     maxZoom: 10,        
     noWrap: true,
     updateWhenIdle: true,
@@ -671,6 +671,26 @@
     requestAnimationFrame(animatePlanets);
   }
   
+  // Set zoom range for solar system (only visible at far-out zoom levels)
+  // We'll add/remove based on zoom level to control visibility
+  let solarSystemVisible = false;
+  
+  function updateSolarSystemVisibility() {
+    const zoom = map.getZoom();
+    const shouldBeVisible = zoom <= -1; // Show when zoomed out beyond -1
+    
+    if (shouldBeVisible && !solarSystemVisible) {
+      map.addLayer(solarSystemLayer);
+      solarSystemVisible = true;
+      animationRunning = true;
+      animatePlanets();
+    } else if (!shouldBeVisible && solarSystemVisible) {
+      map.removeLayer(solarSystemLayer);
+      solarSystemVisible = false;
+      animationRunning = false;
+    }
+  }
+  
   // Start/stop animation when layer is added/removed
   // Store original methods
   const originalOnAdd = solarSystemLayer.onAdd.bind(solarSystemLayer);
@@ -772,12 +792,16 @@
   
   // Add default layers - gold disk first (behind), then parcels (on top)
   circleLayer.addTo(map);
-  solarSystemLayer.addTo(map);
+  // Solar system layer is added/removed automatically based on zoom
+  updateSolarSystemVisibility(); // Initialize solar system visibility
   parcelsLayer.addTo(map);
   scaleControlLayer.addTo(map);
+  
+  // Update solar system visibility on zoom
+  map.on('zoom zoomend', updateSolarSystemVisibility);
 
-  // --- Zoom-based transitions for gold disk color and parcels opacity
-  // As we zoom out from -1 to -3, fade the disk color and hide the parcels
+  // --- Zoom-based transitions for gold disk color
+  // As we zoom out past -2, transition disk from gold (fiche) to orange (sun)
   
   // Helper function to interpolate between two hex colors
   function interpolateColor(color1, color2, factor) {
@@ -802,42 +826,36 @@
     return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
   }
   
-  function updateZoomTransitions() {
+  function updateDiskColor() {
     const zoom = map.getZoom();
     
-    // Calculate transition factor (0 at zoom -1, 1 at zoom -3)
-    // todo: use a start and end const for the zoom range
+    // Transition from gold (close) to orange/sun (far) between zoom -1 and -3
     let factor = 0;
     if (zoom <= -3) {
-      factor = 1;
-    } else if (zoom >= 0) {
-      factor = 0;
+      factor = 1;  // Full orange/sun color
+    } else if (zoom >= -1) {
+      factor = 0;  // Full gold color
     } else {
       // Linear interpolation between -1 and -3
-      factor = (0 - zoom) / 2;  // (zoom - (-1)) / (-3 - (-1)) reversed
+      factor = (-1 - zoom) / 2;  // 0 at -1, 1 at -3
     }
     
-    // Interpolate disk color from gold-disk-circle to gold-disk-circle-cwt
-    const color1 = '#af8149';  // gold-disk-circle
-    const color2 = '#ff9412';  // gold-disk-circle-cwt
-    const newColor = interpolateColor(color1, color2, factor);
+    // Interpolate disk color from gold (fiche) to orange (sun)
+    const goldColor = '#af8149';   // gold-disk-circle (fiche color)
+    const sunColor = '#ff9412';    // gold-disk-circle-cwt (sun color)
+    const newColor = interpolateColor(goldColor, sunColor, factor);
     
     // Update the circle fill color directly
     if (circle._path) {
       circle._path.style.fill = newColor;
     }
-    
-    // Fade parcels layer opacity (1 at zoom -1, 0 at zoom -3)
-    const opacity = 1 - factor;
-    parcelsLayer.setOpacity(opacity);
   }
   
-  // Initialize transitions
-  updateZoomTransitions();
+  // Initialize disk color
+  updateDiskColor();
   
-  // Update on zoom
-  map.on('zoom', updateZoomTransitions);
-  map.on('zoomend', updateZoomTransitions);
+  // Update disk color on zoom
+  map.on('zoom zoomend', updateDiskColor);
 
 
   // const parcels = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' ,{
