@@ -503,10 +503,26 @@
   
   const cwandtImageOverlay = L.imageOverlay('cwandt-logo.png', logoBounds, {
     opacity: 1.0,
-    interactive: false,
+    interactive: true,  // Enable mouse events for clickability
     pane: 'goldDiskPane'  // Same pane as gold disk so it's behind tiles
   });
-    
+
+  // Make the logo clickable - opens CW&T website
+  cwandtImageOverlay.on('click', function() {
+    window.open('https://cwandt.com', '_blank');
+  });
+  
+  // Add pointer cursor when hovering over logo
+  cwandtImageOverlay.on('mouseover', function() {
+    document.body.style.cursor = 'pointer';
+  });
+  
+  cwandtImageOverlay.on('mouseout', function() {
+    document.body.style.cursor = '';
+  });
+
+  
+
   // --- Create grid line layer
 
   const gridLayer = L.layerGroup();
@@ -1169,14 +1185,15 @@
     }
   }
 
-  // Logo should disappear when zoom=-7
+  // Logo should fade at zoom=-6 and disappear when zoom=-7
 
   function updateCwandtImageVisibility() {
     const zoom = map.getZoom();
-    const shouldBeVisible = zoom > -7; 
-    
-    if (shouldBeVisible) {
-      cwandtImageOverlay.setOpacity(1);
+
+    if (zoom >= -5) {
+      cwandtImageOverlay.setOpacity(1); 
+    } else if (zoom == -6) {  
+      cwandtImageOverlay.setOpacity(0.5); 
     } else {
       cwandtImageOverlay.setOpacity(0);
     }
