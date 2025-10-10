@@ -189,7 +189,7 @@
   // One map unit = one pixel at zoom 0
   // so the whole world goes from upper left (-250,250) to bottom right (250,-250)
   const CRS_CENTERED = L.extend({}, L.CRS.Simple, {
-  transformation: new L.Transformation(1, TILE_SIZE/2, -1, TILE_SIZE/2)
+    transformation: new L.Transformation(1, TILE_SIZE/2, -1, TILE_SIZE/2)
   });    
 
 
@@ -213,7 +213,7 @@
   const worldBounds = L.latLngBounds([[-(TILE_SIZE/2), (TILE_SIZE/2)], [(TILE_SIZE/2), -(TILE_SIZE/2)]]);
 
   // panning limits
-  map.setMaxBounds(worldBounds.pad(0.1)); // small padding to allow gentle panning  
+  map.setMaxBounds(worldBounds.pad(0.25)); // small padding to allow gentle panning  
 
   // Default initial view: show center 4 parcels with 25% margin
   // Center 4 parcels span from -1 to +1 parcels in both directions (2x2 grid centered at origin)
@@ -246,12 +246,13 @@
         el.textContent = `z ${z.toFixed(this.options.zoomDigits)}  center ( y=${c.lat.toFixed(this.options.digits)} , x=${c.lng.toFixed(this.options.digits)} )`;
       };
 
-      map.on('move zoom', update);
+      this._update = update;
+
+      map.on('move zoom', this._update);
       update();              // initial render
-      this._off = () => map.off('move zoom', update);
       return el;
     },
-    onRemove() { this._off && this._off(); }
+    onRemove() { map.off('move zoom' , this._update); }
   });
 
   // Create the control but don't add it yet - we'll add it via layer control
@@ -288,6 +289,8 @@
       this._container = container;
       
       // Hide control at the start of zoom, update and show after zoom/move completes
+      // If we don't do this then sometimes the scale bar ghets too small while zooming and looks crappy.
+      // TODO: Can we make it update correctly durring the zoom?
       map.on('zoomstart', this._hide, this);
       map.on('zoomend', this._update, this);
       this._update();
@@ -379,6 +382,8 @@
         ctx.font = '12px monospace'; // Match the scale bar font
         
         const PADDING = 16; // Space padding on each end (8px per side)
+
+        // I know there must be a better (non-iterative) way to do this, but I give up. 
         
         // Find the smallest scale where the label fits inside the bar
         let selectedScale = scales[scales.length - 1]; // Default to largest (1m)
@@ -420,9 +425,8 @@
     },
   });
 
-
   // Debug tile layer shows coords in inside each tile
-  // Note that the URL is not used but it has to be there. 
+  // Note that the URL is not used but it has to be there or Leaflet will not load the tiles! (Ask me how i know)
   const debugLayer = new DebugTileLayer(  TILE_URL_TEMPLATE , {       
       tileSize: TILE_SIZE,  
       bounds: worldBounds,
@@ -443,16 +447,15 @@
     bounds: worldBounds,
     minNativeZoom: 0,   // The native sooms Are driven by how many tile sizes we have on the server (driven in build_world.py)
     maxNativeZoom: 6,   // This range covers 1 parcel pixel=1 tile  pixel out to where all parcels fit in a single tile. 
-    minZoom: -2,        // Hide parcels when zoomed out to solar system scale
+    minZoom: -2,        // Automatically hide parcels when zoomed out to solar system scale. 
     maxZoom: 10,        
     noWrap: true,
-    updateWhenIdle: true,
+    // updateWhenIdle: true,  // The default seems right - yes for mobile, no for desktop
   });      
-
 
   // --- Gold disk circle
   
-  // Create an overlay layer with a circle that shows the claimable radius
+  // Create an overlay layer with a circle that represents the gold on the sapphire slide
   // The color and width of the circle are defined in style.css
   
   // Create a custom pane for the gold disk so it renders BEHIND tiles
@@ -475,12 +478,13 @@
     className: 'gold-disk-circle',
     fillOpacity: 1,     // Override Leaflet's default 0.2 opacity
     pane: 'goldDiskPane',  // Use custom pane to render behind tiles
-    interactive: false  // Don't capture mouse events
+    interactive: false,  // Don't capture mouse events
+    //renderer: svgRenderer  // Explicitly use SVG renderer
   });
   
   circleLayer.addLayer(circle);
 
-  // --- Create grid lines
+  // --- Create grid line layer
 
   const gridLayer = L.layerGroup();
   
@@ -557,10 +561,22 @@
         ], { className: 'grid-line' });
         gridLayer.addLayer(line);
       }
+   
+   
     }
   }
 
+  // Note that this will only ever remove the grid if we are zoomed out too far
+  // it will not add it back if we then zoom back in. I am ok with that. 
+  
+  function updateGridVisibility() {
+    const zoom = map.getZoom();
+    const shouldBeVisible = zoom >= 0; // Show when at or above parcel minZoom
 
+    if (!shouldBeVisible) {
+      map.removeLayer(gridLayer);
+    }
+  }
 
   // --- Solar System Layer
   // Treat the gold disk as the sun and add planet orbits at scale
@@ -740,41 +756,10 @@
       animationRunning = false;
     }
   }
-  
-  // Grid layer visibility: hide when zoomed out past parcel layer minZoom (-2)
-  let gridVisible = false;
-  
-  function updateGridVisibility() {
-    const zoom = map.getZoom();
-    const shouldBeVisible = zoom >= 0; // Show when at or above parcel minZoom
-    
-    if (shouldBeVisible && !gridVisible) {
-      gridLayer.addTo(map);
-      gridVisible = true;
-    } else if (!shouldBeVisible && gridVisible) {
-      map.removeLayer(gridLayer);
-      gridVisible = false;
-    }
-  }
-  
-  // Parcel highlight visibility: hide when zoomed out past parcel layer minZoom (-2)
-  let highlightLayer = null; // Will be set if parcel parameter is present
-  let highlightVisible = false;
-  
-  function updateHighlightVisibility() {
-    if (!highlightLayer) return; // No highlight layer to manage
-    
-    const zoom = map.getZoom();
-    const shouldBeVisible = zoom >= 0; // Show when at or above parcel minZoom
-    
-    if (shouldBeVisible && !highlightVisible) {
-      highlightLayer.addTo(map);
-      highlightVisible = true;
-    } else if (!shouldBeVisible && highlightVisible) {
-      map.removeLayer(highlightLayer);
-      highlightVisible = false;
-    }
-  }
+
+
+
+ 
   
   // Start/stop animation when layer is added/removed
   // Store original methods
@@ -836,13 +821,7 @@
     }
   }
 
-  // --- Layer Control
-  // Add layers control for toggling overlay layers
-  
-  const baseLayers = {
-    "Parcels": parcelsLayer
-  };
-  
+
   // Create a wrapper layer for the status control so it can be toggled
   const statusControlLayer = L.layerGroup();
   statusControlLayer.onAdd = function(map) {
@@ -865,48 +844,25 @@
     "Grid Lines": gridLayer,
     //"Solar System": solarSystemLayer,   // peope should discover this, not see it in the menu!
     //"Parcel Labels": labelsLayer,   // Needs work
-    // "Status Display": statusControlLayer,    // not really neeeded anymore now that this info is in the URL
+    "Status Display": statusControlLayer,    // not really neeeded anymore now that this info is in the URL
     "Scale Bar": scaleControlLayer,
     //"Debug Tiles": debugLayer,
   };
   
   // Create the layers control once (layers can be added dynamically later)
-  const layersControl = L.control.layers(baseLayers, overlayLayers, { 
+  const layersControl = L.control.layers([], overlayLayers, { 
     position: 'topright', 
     hideSingleBase: true 
   }).addTo(map);
   
   // Add default layers - gold disk first (behind), then parcels (on top)
+
   circleLayer.addTo(map);
-  // Solar system layer is added/removed automatically based on zoom
-  updateSolarSystemVisibility(); // Initialize solar system visibility
   parcelsLayer.addTo(map);
+
+  // Scale control is on by default
   scaleControlLayer.addTo(map);
   
-  // Grid layer and highlight layer visibility will be evaluated after URL parameters are processed
-  // (see below after restoreViewFromURL and parcel highlighting)
-  
-  // Update layer visibility only after zoom completes (not during animation)
-  map.on('zoomend', updateSolarSystemVisibility);
-  map.on('zoomend', updateGridVisibility);
-  map.on('zoomend', updateHighlightVisibility);
-  
-  // Track when user manually adds/removes layers via layer control
-  map.on('overlayadd', function(e) {
-    if (e.name === 'Grid Lines') {
-      gridVisible = true;
-    } else if (e.name.startsWith('Highlight ')) {
-      highlightVisible = true;
-    }
-  });
-  map.on('overlayremove', function(e) {
-    if (e.name === 'Grid Lines') {
-      gridVisible = false;
-    } else if (e.name.startsWith('Highlight ')) {
-      highlightVisible = false;
-    }
-  });
-
   // --- URL-based View Sharing
   // Update URL to reflect current map view (similar to Google Maps)
   // Format: ?@lat,lng,radiusum where radius is in micrometers
@@ -979,15 +935,6 @@
     return false;
   }
   
-  // Listen for pan/zoom completion and update URL
-  map.on('moveend zoomend', () => {
-    // Use a small debounce to avoid excessive updates during animations
-    if (updateURLFromView.timeout) {
-      clearTimeout(updateURLFromView.timeout);
-    }
-    updateURLFromView.timeout = setTimeout(updateURLFromView, 100);
-  });
-
 
   // --- Restore view from URL if present
   // Try to restore view from @ parameter in URL (takes precedence over parcel parameter if both present)
@@ -996,6 +943,10 @@
 
   // --- Parcel Highlighting from URL Parameter
   // Check for ?parcel=AA4 style parameter in URL and highlight if present
+
+  // Parcel highlight visibility: hide when zoomed out past parcel layer minZoom (-2)
+  let highlightLayer = null; // Will be set if parcel parameter is present
+  let highlightVisible = false;  
   
   const urlParams = new URLSearchParams(window.location.search);
   const highlightParcelId = urlParams.get('parcel');
@@ -1070,19 +1021,46 @@
       console.warn(`Invalid parcel ID in URL: ${highlightParcelId}`);
     }
   }
-  // Note: layers control is already created above, no need to create it here
-
-  if (!viewRestored) {
-    // No @ view parameter in URL, update URL to reflect current view
-    // (whether from parcel parameter or default view)
-    updateURLFromView();
+   
+  function updateHighlightVisibility() {
+    if (!highlightLayer) return; // No highlight layer to manage
+    
+    const zoom = map.getZoom();
+    const shouldBeVisible = zoom >= 0; // Show when at or above parcel minZoom
+    
+    if (shouldBeVisible && !highlightVisible) {
+      highlightLayer.addTo(map);
+      highlightVisible = true;
+    } else if (!shouldBeVisible && highlightVisible) {
+      map.removeLayer(highlightLayer);
+      highlightVisible = false;
+    }
   }
 
-  // Evaluate grid and highlight layer visibility now that zoom level has been set
-  // (either from URL parameters or default view)
-  updateGridVisibility();
-  updateHighlightVisibility();
-  updateSolarSystemVisibility();
+  // Note: layers control is already created above, no need to create it here
+
+  // Listen for pan/zoom completion and update URL
+  map.on('moveend zoomend', () => {
+    // Use a small debounce to avoid excessive updates during animations
+    if (updateURLFromView.timeout) {
+      clearTimeout(updateURLFromView.timeout);
+    }
+    updateURLFromView.timeout = setTimeout(updateURLFromView, 100);
+  });
+  
+  
+  // if (!viewRestored) {
+  //   // No @ view parameter in URL, update URL to reflect current view
+  //   // (whether from parcel parameter or default view)
+  //   updateURLFromView();
+  // }
+
+  // Check if gridlines should be shown based on URL parameter
+  const showGridlines = urlParams.get('gridlines') === 'on';
+  if (showGridlines) {
+    // Evaluate grid visibility based on zoom level
+    map.addLayer(gridLayer);
+  }
 
   // --- Zoom-based transitions for gold disk color
   // As we zoom out past -2, transition disk from gold (fiche) to orange (sun)
@@ -1110,24 +1088,56 @@
     return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
   }
   
+
+  const goldColor   = '#af8149';   
+  const cwandtColor = '#ff9412';    
+  const sunColor    = "#FFCF37";
+
+  // these transitions are imperically derived so sue me
+
+  function diskColor( zoom ) {
+
+    if (zoom >= 0) {
+      // Just normal parcel views
+      return goldColor;
+    }
+
+    // Once we get lower than zero, they zoomed out paste where the whole disk fills the canvas
+
+    // gridlines should disapear at -1
+
+    // Stuff in the disk should disapear at -2
+
+    // when we get to -3 we should be cwt
+
+    if (zoom == -1 ) {
+      return interpolateColor(goldColor, cwandtColor, 0.33);
+    }
+
+    if (zoom == -2 ) {
+      return interpolateColor(goldColor, cwandtColor, 0.66);
+    }
+
+    if (zoom == -3 ) {
+      return cwandtColor;
+    }
+
+    if (zoom == -4 ) {
+      return interpolateColor(cwandtColor, sunColor, 0.33);
+    }
+
+    if (zoom == -5 ) {
+      return interpolateColor(cwandtColor, sunColor, 0.66);
+    }
+
+    return sunColor;
+
+  }
+    
+
   function updateDiskColor() {
     const zoom = map.getZoom();
-    
-    // Transition from gold (close) to orange/sun (far) between zoom -1 and -3
-    let factor = 0;
-    if (zoom <= -3) {
-      factor = 1;  // Full orange/sun color
-    } else if (zoom >= -1) {
-      factor = 0;  // Full gold color
-    } else {
-      // Linear interpolation between -1 and -3
-      factor = (-1 - zoom) / 2;  // 0 at -1, 1 at -3
-    }
-    
-    // Interpolate disk color from gold (fiche) to orange (sun)
-    const goldColor = '#af8149';   // gold-disk-circle (fiche color)
-    const sunColor = '#ff9412';    // gold-disk-circle-cwt (sun color)
-    const newColor = interpolateColor(goldColor, sunColor, factor);
+    const newColor = diskColor(zoom);
     
     // Update the circle fill color directly
     if (circle._path) {
@@ -1135,68 +1145,17 @@
     }
   }
   
-  // Initialize disk color
-  updateDiskColor();
+  function zoomChanged() {
+    updateHighlightVisibility();
+    updateGridVisibility();
+    updateSolarSystemVisibility();
+    updateDiskColor();
+  }
+
+  map.on('zoom', zoomChanged);
+
+  // Initialize eveerything right to get started. 
+  zoomChanged();
   
-  // Update disk color on zoom
-  map.on('zoom zoomend', updateDiskColor);
 
-
-  // const parcels = new DebugTileLayer(  'world/tiles/{z}/{x}/{y}.png' ,{
-  //   tileSize: TILE_SIZE,
-
-  //   // So I am only going to provide tiles at the native resolution (zoom 0) and let Leaflet do any other scaling up or down
-  //   // locally. minNativeZoom must match or be lower than the map's minZoom to enable auto-scaling.
-  //   minNativeZoom: 0,
-  //   maxNativeZoom: 6,
-  //   minZoom: -4, 
-  //   maxZoom: 10,        
-  //   noWrap: true,
-  //   updateWhenIdle: true,
-  // }).addTo(map);
-
-  // // Lets test with a static tile
-  // const parcels = new L.TileLayer( '500x500-test.png', {
-
-  //   tileSize: TILE_SIZE,
-
-  //   // So I am only going to provide tiles at the native resolution (zoom 0) and let Leaflet do any other scaling up or down
-  //   // locally. minNativeZoom must match or be lower than the map's minZoom to enable auto-scaling.
-  //   minNativeZoom: 0,
-  //   maxNativeZoom: 0,
-  //   minZoom: -2, 
-  //   maxZoom: 2,
-  //   noWrap: true,
-  //   updateWhenIdle: true,
-  // }).addTo(map);
-
-  // For now, show the whole world at startup
-  // todo: zoom into 2x2 center parcels
-  //map.fitBounds(worldBounds, { padding: [80, 80] });
-
-  // Click handler: fly to center of clicked parcel at parcel zoom level
-  map.on('click', (e) => {
-    const x = e.latlng.lng;  // x coordinate in map units
-    const y = e.latlng.lat;  // y coordinate in map units
-    
-    // Calculate which parcel was clicked (centered grid coordinates)
-    const parcelX = Math.floor(x / mapunit_per_parceltile);
-    const parcelY = Math.floor(y / mapunit_per_parceltile);
-    
-    // Convert to 0-based row/col indices for display
-    const col = parcelX + PARCEL_COLS / 2;
-    const row = parcelY + PARCEL_ROWS / 2;
-    
-    if (row >= 0 && row < PARCEL_ROWS && col >= 0 && col < PARCEL_COLS) {
-      const coord = `${indexToLetters(row)}${col + 1}`;
-      console.log('Clicked tile:', coord, { row, col });
-      
-      // Calculate center of the parcel in map units
-      const centerX = (parcelX + 0.5) * mapunit_per_parceltile;
-      const centerY = (parcelY + 0.5) * mapunit_per_parceltile;
-      
-      // Fly to the center of the parcel at zoom level 6
-      map.flyTo([centerY, centerX], parcel_zoom);
-    }
-  });
 })();
