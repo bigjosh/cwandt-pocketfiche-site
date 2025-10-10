@@ -486,8 +486,9 @@
 
   // -- CWandT Layer
   // Display the CW&T logo as an overlay on the gold disk
+  // TODO: I am so sorry this is a crap ass png file, but I tried sop hard to extract a vector using the Mono Space font and
+  // spent like an hour and still could not get it to work maybe someday someone can help me. 
   
-  const cwandtLayer = L.layerGroup();
   
   // Logo will be 100% of disk diameter, centered horazonally at origin
   // and the top will start at 2 disk hights down from the origin
@@ -500,14 +501,12 @@
     [logoHalfHeight-2*radiusMapUnits, logoHalfWidth]     // Northeast corner
   ];
   
-  const logoOverlay = L.imageOverlay('cwandt-logo.png', logoBounds, {
+  const cwandtImageOverlay = L.imageOverlay('cwandt-logo.png', logoBounds, {
     opacity: 1.0,
     interactive: false,
     pane: 'goldDiskPane'  // Same pane as gold disk so it's behind tiles
   });
-  
-  cwandtLayer.addLayer(logoOverlay);
-  
+    
   // --- Create grid line layer
 
   const gridLayer = L.layerGroup();
@@ -882,7 +881,7 @@
   // Add default layers - gold disk first (behind), then parcels (on top)
 
   circleLayer.addTo(map);
-  cwandtLayer.addTo(map);
+  cwandtImageOverlay.addTo(map);
   parcelsLayer.addTo(map);
 
   // Scale control is on by default
@@ -1169,12 +1168,26 @@
       circle._path.style.fill = newColor;
     }
   }
+
+  // Logo should disappear when zoom=-7
+
+  function updateCwandtImageVisibility() {
+    const zoom = map.getZoom();
+    const shouldBeVisible = zoom > -7; 
+    
+    if (shouldBeVisible) {
+      cwandtImageOverlay.setOpacity(1);
+    } else {
+      cwandtImageOverlay.setOpacity(0);
+    }
+  }
   
   function zoomChanged() {
     updateHighlightVisibility();
     updateGridVisibility();
     updateSolarSystemVisibility();
     updateDiskColor();
+    updateCwandtImageVisibility();  
   }
 
   map.on('zoom', zoomChanged);
