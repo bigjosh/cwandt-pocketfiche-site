@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>CW&T SVG</title>
+<style>body{margin:0;background:#111;display:grid;place-items:center;height:100vh;gap:16px}button{padding:8px 12px}</style>
+
+<div id="mount"></div>
+<div>
+  <button id="save-svg">Download SVG</button>
+  <button id="save-png">Download PNG</button>
+</div>
+
+<script>
+/* === your pure-path CW&T SVG === */
+(function () {
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (n,a={})=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);return e;}
+  const svg = el("svg", { width: 180, height: 48, viewBox: "0 0 180 48" });
+  svg.appendChild(el("rect",{x:0,y:0,width:180,height:48,fill:"#000"}));
+
+  const C = el("path",{fill:"#fff","fill-rule":"evenodd",
+    d:"M24,6 A18,18 0 1 0 24,42 A18,18 0 1 0 24,6 Z M24,14 A10,10 0 1 1 24,34 A10,10 0 1 1 24,14 Z M28,4 H48 V44 H28 Z"});
+  const W = el("path",{fill:"#fff",
+    d:"M60,6 L68,42 L78,18 L88,42 L96,6 L88,6 L83,28 L78,16 L73,28 L68,6 Z"});
+  const amp = el("path",{fill:"#fff","fill-rule":"evenodd",
+    d:"M118,12 A9,9 0 1 0 118,30 A9,9 0 1 0 118,12 Z M118,16 A5,5 0 1 1 118,26 A5,5 0 1 1 118,16 Z M126,30 A6.5,6.5 0 1 0 126,43 A6.5,6.5 0 1 0 126,30 Z M126,33 A3.5,3.5 0 1 1 126,40 A3.5,3.5 0 1 1 126,33 Z M109,32 L113,28 L138,6 L134,10 Z"});
+  const T = el("path",{fill:"#fff",d:"M150,6 H176 V12 H165 V42 H161 V12 H150 Z"});
+  svg.append(C,W,amp,T);
+  document.getElementById("mount").appendChild(svg);
+
+  // --- Download helpers ---
+  function svgString() {
+    const s = new XMLSerializer().serializeToString(svg);
+    return s.startsWith("<?xml") ? s : '<?xml version="1.0" encoding="UTF-8"?>\n' + s;
+  }
+  document.getElementById("save-svg").onclick = () => {
+    const blob = new Blob([svgString()], {type:"image/svg+xml"});
+    const a = Object.assign(document.createElement("a"), {download:"cwt.svg", href:URL.createObjectURL(blob)});
+    a.click(); URL.revokeObjectURL(a.href);
+  };
+  document.getElementById("save-png").onclick = async () => {
+    const scale = 4; // increase for higher-res PNG
+    const vb = svg.viewBox.baseVal;
+    const w = vb.width * scale, h = vb.height * scale;
+
+    const img = new Image();
+    img.decoding = "async";
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgString());
+    await img.decode();
+
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(img, 0, 0, w, h);
+
+    const a = Object.assign(document.createElement("a"), {download:"cwt.png", href:c.toDataURL("image/png")});
+    a.click();
+  };
+})();
+</script>
