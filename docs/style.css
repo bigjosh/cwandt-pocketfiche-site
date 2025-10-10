@@ -75,3 +75,24 @@ body {
   white-space: nowrap;
   pointer-events: none;                             /* Don't block clicks on parcels */
 }
+
+/* Parcel ID labels - thick blocky font, red with 70% transparency, centered */
+.parcel-label-id {
+  pointer-events: none;                             /* Don't block map interactions */
+  /* Center the label on its anchor point */
+  position: absolute;
+  transform: translate(-50%, -50%);
+  -webkit-transform: translate(-50%, -50%);
+}
+
+.parcel-label-text {
+  font-family: Impact, 'Arial Black', sans-serif;   /* Thick and blocky font */
+  font-weight: 900;                                 /* Extra bold for thickness */
+  color: rgba(255, 0, 0, 0.3);                      /* Red with 70% transparency */
+  white-space: nowrap;
+  pointer-events: none;                             /* Don't block map interactions */
+  text-align: center;
+  display: block;
+  line-height: 1;
+  /* Font size will be set dynamically by JavaScript based on zoom level */
+}

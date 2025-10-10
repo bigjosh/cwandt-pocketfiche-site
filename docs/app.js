@@ -824,8 +824,16 @@
 
   // --- Parcel Labels Layer
   // Create labels for each parcel (A1 in lower left to AL38 in upper right)
+  // Labels are centered in each parcel, thick blocky font, red with 70% transparency
   
-  const labelsLayer = L.layerGroup();
+  // Create a custom pane for parcel labels so they render ABOVE tiles
+  // Default panes: tilePane (z-index 200), overlayPane (z-index 400)
+  // We need z-index > 200 to be above tiles
+  map.createPane('parcelLabelsPane');
+  map.getPane('parcelLabelsPane').style.zIndex = 250;
+  
+  const parcelLabelsLayer = L.layerGroup();
+  const parcelLabelMarkers = []; // Store markers for zoom-based scaling
   
   // Loop through all parcels in the 38x38 grid
   for (let row = 0; row < PARCEL_ROWS; row++) {
@@ -837,28 +845,56 @@
       const parcelX = col - PARCEL_COLS / 2;
       const parcelY = row - PARCEL_ROWS / 2;
       
-      // Calculate position of lower-left corner of parcel in map units
-      // Remember: y-axis is flipped, so "lower" means smaller y value
-      const x = parcelX * mapunit_per_parceltile;
-      const y = parcelY * mapunit_per_parceltile;
+      // Calculate position at the CENTER of the parcel in map units
+      const x = (parcelX + 0.5) * mapunit_per_parceltile;  // +0.5 to center
+      const y = (parcelY + 0.5) * mapunit_per_parceltile;  // +0.5 to center
       
       // Create a DivIcon for the text label
       const icon = L.divIcon({
-        className: 'parcel-label',
-        html: label,
+        className: 'parcel-label-id',
+        html: `<span class="parcel-label-text">${label}</span>`,
         iconSize: null,  // Let CSS control size
-        iconAnchor: [0, 0]  // Anchor at top-left of icon (will be positioned at lower-left of parcel)
+        iconAnchor: null  // Will be centered via CSS transform
       });
       
-      // Create marker at the lower-left corner of the parcel
+      // Create marker at the center of the parcel
       const marker = L.marker([y, x], {
         icon: icon,
-        interactive: false  // Don't block map interactions
+        interactive: false,  // Don't block map interactions
+        pane: 'parcelLabelsPane'  // Use custom pane to render above tiles
       });
       
-      labelsLayer.addLayer(marker);
+      parcelLabelsLayer.addLayer(marker);
+      parcelLabelMarkers.push(marker);
     }
   }
+  
+  // Function to update label font sizes based on zoom level
+  // At zoom 6, one parcel = 500px screen pixels, so we want font ~250px (50% of parcel)
+  // At other zooms, scale proportionally
+  function updateParcelLabelSize() {
+    const zoom = map.getZoom();
+    // Calculate font size: at zoom 6, we want 250px (50% of 500px parcel)
+    // Each zoom level doubles/halves the size
+    const baseFontSize = 250; // Font size at zoom 6
+    const fontSize = baseFontSize * Math.pow(2, zoom - parcel_zoom);
+    
+    // Update all label elements
+    const labels = document.querySelectorAll('.parcel-label-text');
+    labels.forEach(label => {
+      label.style.fontSize = fontSize + 'px';
+    });
+  }
+  
+  // Update label sizes when layer is added or zoom changes
+  parcelLabelsLayer.on('add', () => {
+    updateParcelLabelSize();
+    map.on('zoom', updateParcelLabelSize);
+  });
+  
+  parcelLabelsLayer.on('remove', () => {
+    map.off('zoom', updateParcelLabelSize);
+  });
 
 
   // Create a wrapper layer for the status control so it can be toggled
@@ -882,7 +918,7 @@
   const overlayLayers = {
     "Grid Lines": gridLayer,
     //"Solar System": solarSystemLayer,   // peope should discover this, not see it in the menu!
-    //"Parcel Labels": labelsLayer,   // Needs work
+    //"Parcel Labels": parcelLabelsLayer,  // TODO:TOTOALLY NOIT WORKING!!!
     "Status Display": statusControlLayer,    // not really neeeded anymore now that this info is in the URL
     "Scale Bar": scaleControlLayer,
     //"Debug Tiles": debugLayer,
