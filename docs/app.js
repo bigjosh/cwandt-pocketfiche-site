@@ -125,19 +125,17 @@
     const h = TILE_SIZE;
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
-        <rect x="1.5" y="1.5" width="${w - 3}" height="${h - 3}" fill="#f0f8ff" stroke="#0aa" stroke-width="1" stroke-dasharray="5,5"/>
-        <g font-family="monospace" fill="#000">
+        <rect x="1.5" y="1.5" width="${w - 3}" height="${h - 3}" fill="none" stroke="#00000080" stroke-width="1" stroke-dasharray="5,5"/>
+        <g font-family="monospace" fill="#80000080" stroke="#80000080" stroke-width="1">
           <text x="16" y="36" font-size="24">
             z=${coords.z}
             x=${coords.x}
             y=${coords.y}
           </text>
           <text x="${w / 2}" y="${h / 2}" font-size="64" text-anchor="middle" dominant-baseline="middle">${title}</text>
-          <g transform="translate(16, 16)">
-            <line x1="0" y1="100" x2="500" y2="100" stroke="#000" stroke-width="1" />
-            <line x1="0" y1="200" x2="500" y2="200" stroke="#000" stroke-width="2" />
-            <line x1="0" y1="300" x2="500" y2="300" stroke="#000" stroke-width="4" />
-            <line x1="0" y1="400" x2="500" y2="400" stroke="#000" stroke-width="8" />
+          <g stroke="#00000080" stroke-width="2" fill="#80000080">
+            <line x1="0" y1="0" x2="${w}" y2="${h}" />
+            <line x1="${w}" y1="0" x2="0" y2="${h}" />
           </g>
 
         </g>
@@ -1136,6 +1134,14 @@
   if (showGridlines) {
     // Evaluate grid visibility based on zoom level
     map.addLayer(gridLayer);
+  }
+
+  // Check if debug mode should be enabled based on URL parameter
+  const debugMode = urlParams.get('debug') === 'true';
+  if (debugMode) {
+    // Add debug layer to map and layer control
+    debugLayer.addTo(map);
+    layersControl.addOverlay(debugLayer, "Debug Tiles");
   }
 
   // --- Zoom-based transitions for gold disk color
