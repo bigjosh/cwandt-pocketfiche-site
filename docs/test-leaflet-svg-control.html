@@ -31,7 +31,7 @@
 
   // Your SVG markup (any SVG works)
   const mySVG = `
-    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-label="logo">
+    <svg viewBox="0 0 100 100" aria-label="logo">
       <defs>
         <radialGradient id="g"><stop offset="0" /><stop offset="1" stop-opacity="0"/></radialGradient>
       </defs>
@@ -43,28 +43,46 @@
 
   // Custom control that hosts the SVG
   const SvgControl = L.Control.extend({
-    options: { position: 'topright', className: 'svg-control', title: 'My SVG' },
     onAdd: function () {
-      const div = L.DomUtil.create('div', this.options.className);
+      const div = L.DomUtil.create('div', "fade-in-out-class");
+      div.style.width = '460px';
+      div.style.transition = 'opacity 0.25s ease-in-out';
       div.innerHTML = mySVG;
-      if (this.options.title) div.setAttribute('title', this.options.title);
-      // Prevent map interactions when clicking the SVG
-      L.DomEvent.disableClickPropagation(div);
-      L.DomEvent.disableScrollPropagation(div);
       return div;
     }
   });
 
   // Add it
-  const svgControl = new SvgControl({ position: 'topright' }).addTo(map);
+  const svgControl = new SvgControl({ position: 'topleft' }).addTo(map);
+
+  // Position it at center of viewport
+  const container = svgControl.getContainer();
+  
+  // First, get the parent control container and make it full-width/height
+  const parentContainer = container.parentNode;
+  parentContainer.style.width = '100vw';
+  parentContainer.style.height = '100vh';
+  parentContainer.style.left = '0';
+  parentContainer.style.top = '0';
+  
+  // Now position our div in the center
+  container.style.position = 'absolute';
+  container.style.left = '50%';
+  container.style.top = '50%';
+  container.style.transform = 'translate(-50%, -50%)';  // Actually center it
+  container.style.right = 'auto';
+  container.style.bottom = 'auto';
 
   map.on("zoomend", function() {
+
+    // This is nessisary becuase the svgcontrol is a leaflet thing, not the actual element. 
+    container.style.opacity = container.style.opacity == 0 ? 1 : 0;
     
-    const svg = document.querySelector('.svg-control svg');
-    if (svg) {
-        svg.style.opacity = 0;
-        svg.style.transition = 'opacity 0.25s ease-in-out';
-    }
+    // const svg = document.querySelector('.svg-control svg');
+    // if (svg) {
+    //     svg.style.opacity = 0;
+    //     svg.style.transition = 'opacity 0.25s ease-in-out';
+    // }
     
   });
 
