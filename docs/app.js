@@ -86,9 +86,9 @@
   // - Letters (A, B, ..., Z, AA, AB, ...) represent COLUMNS, incrementing left-to-right
   // - Numbers (1, 2, 3, ...) represent ROWS, incrementing bottom-to-top
   // Tolerates an optional embedded ":" to match the format used in the kickstarter campaign (ok to have: https://stackoverflow.com/questions/2053132/is-a-colon-safe-for-friendly-url-use)
-  function parseCoord(coord) {
+  function parseParceName(name) {
     // Make case-insensitive by converting to uppercase
-    const normalizedCoord = coord.toUpperCase().trim().replace(':', '');
+    const normalizedCoord = name.toUpperCase().trim().replace(':', '');
     const m = /^([A-Z]+)(\d+)$/.exec(normalizedCoord);
     if (!m) return null;
     const letters = m[1];
@@ -174,18 +174,6 @@
   })();
 
 
-  // Returns a single pixel tile
-  const NONEXISTANT_TILE_URL = (() => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 1;
-    canvas.height = 1;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = 'black';
-    ctx.fillRect(0, 0, 1, 1);
-    return canvas.toDataURL();
-  })();
-
-
   // Bear with me here...
   // The CRS.Simple is hardcoded to have (0,0) in the top-left corner and there is no other CRS that has a flat world with (0,0) in the center. 
   // My brain can not handle this, so we need to create our own CRS that has (0,0) in the center and normal (x,y) coordinates.
@@ -234,10 +222,6 @@
   
   // Set default view (may be overridden by URL parameters later)
   map.fitBounds(initialBounds);
-
-  // Add a marker at latlong 0,0
-  L.marker([0, 0]).addTo(map);
-
 
   // Feelling debuggy - might delete
   // Passive status control: zoom + center (live)
@@ -613,19 +597,29 @@
 
     // Your SVG markup (any SVG works)
     const mySVG = `
-      <svg viewBox="0 0 100 100" aria-label="logo">
-        <defs>
-          <radialGradient id="g"><stop offset="0" /><stop offset="1" stop-opacity="0"/></radialGradient>
-        </defs>
-        <circle cx="50" cy="50" r="46" fill="none" stroke="red" stroke-width="1"/>
-        <circle cx="50" cy="50" r="20" fill="url(#g)"/>
-        <path d="M20 80 L80 20" stroke="red" stroke-width="1" stroke-linecap="round"/>
-        <path d="M20 20 L80 80" stroke="red" stroke-width="1" stroke-linecap="round"/>
-        <rect x="0" y="0" width="100" height="100" fill="none" stroke="red" stroke-width="1"/>
+      <svg viewBox="49 53 6 3" aria-label="CW and T lovel logo text">
+      <g fill="#ffffffff" >
+        <path d="m49.909 55.049q0.09102 0 0.15452-0.02963 0.06562-0.03175 0.10583-0.08255 0.04233-0.05292 0.06138-0.11853 0.02117-0.06773 0.02117-0.14182v-0.0254h0.1778v0.0254q0 0.11218-0.03387 0.21167-0.03387 0.09737-0.09948 0.17145-0.06562 0.07197-0.16298 0.1143-0.09737 0.04022-0.22437 0.04022-0.24553 0-0.38312-0.15452-0.13758-0.15452-0.13758-0.45085v-0.3302q0-0.28787 0.13758-0.44662 0.13758-0.15875 0.38312-0.15875 0.127 0 0.22437 0.04233 0.09737 0.04022 0.16298 0.1143 0.06562 0.07197 0.09948 0.17145 0.03387 0.09737 0.03387 0.20955v0.0254h-0.1778v-0.0254q-0.0021-0.07197-0.02328-0.1397-0.01905-0.06773-0.06138-0.11853-0.04022-0.05292-0.10372-0.08255-0.0635-0.03175-0.15452-0.03175-0.17145 0-0.25823 0.12488-0.08467 0.12488-0.08467 0.32808v0.3048q0 0.21802 0.08467 0.33655 0.08678 0.11642 0.25823 0.11642z"/>
+        <path d="m51.668 55.185h-0.32385l-0.13758-1.4055h-0.0254l-0.13758 1.4055h-0.32385l-0.15028-1.4817h0.16087l0.14182 1.4055h0.0254l0.13335-1.4055h0.32597l0.13335 1.4055h0.0254l0.14182-1.4055h0.16087z"/>
+        <path d="m53.068 54.524h-0.20532v0.6604h-0.47413q-0.10583 0-0.18838-0.02963t-0.13758-0.08043q-0.05503-0.05292-0.08467-0.12277-0.02752-0.07197-0.02752-0.15452v-0.0254q0-0.12065 0.07197-0.2032 0.07197-0.08467 0.1778-0.1143v-0.0254q-0.10583-0.02752-0.1778-0.11007-0.07197-0.08467-0.07197-0.20532v-0.0254q0-0.08255 0.02752-0.1524 0.02963-0.07197 0.08467-0.12277 0.05503-0.0508 0.13758-0.08043 0.08255-0.02963 0.18838-0.02963h0.27093v0.1651h-0.25823q-0.12488 0-0.2032 0.0635-0.07832 0.06138-0.07832 0.16933v0.0127q0 0.1143 0.07408 0.17992 0.07408 0.06562 0.20108 0.06562h0.28998v-0.22437h0.1778v0.22437h0.20532zm-0.38312 0.4953v-0.4953h-0.28998q-0.127 0-0.20108 0.06773-0.07408 0.06562-0.07408 0.17992v0.0127q0 0.11007 0.07832 0.17357 0.07832 0.06138 0.2032 0.06138z"/>
+        <path d="m53.262 53.703h1.0414v0.1651h-0.4318v1.3166h-0.1778v-1.3166h-0.4318z"/>
+      </g>
       </svg>
     `;
 
-    // Parse SVG string into element
+
+// viewBox: "0 0 180 48" });
+//   svg.appendChild(el("rect",{x:0,y:0,width:180,height:48,fill:"#000"}));
+
+//   const C = el("path",{fill:"#fff","fill-rule":"evenodd",
+//     d:""});
+//   const W = el("path",{fill:"#fff",
+//     d:"M60,6 L68,42 L78,18 L88,42 L96,6 L88,6 L83,28 L78,16 L73,28 L68,6 Z"});
+//   const amp = el("path",{fill:"#fff","fill-rule":"evenodd",
+//     d:"M118,12 A9,9 0 1 0 118,30 A9,9 0 1 0 118,12 Z M118,16 A5,5 0 1 1 118,26 A5,5 0 1 1 118,16 Z M126,30 A6.5,6.5 0 1 0 126,43 A6.5,6.5 0 1 0 126,30 Z M126,33 A3.5,3.5 0 1 1 126,40 A3.5,3.5 0 1 1 126,33 Z M109,32 L113,28 L138,6 L134,10 Z"});
+//   const T = el("path",{fill:"#fff",d:"M150,6 H176 V12 H165 V42 H161 V12 H150 Z"});
+
+//     // Parse SVG string into element
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = mySVG;
     const svgElement = tempDiv.firstElementChild;  // Get the <svg> element
@@ -1162,7 +1156,7 @@
   const highlightParcelId = urlParams.get('parcel');
   
   if (highlightParcelId) {
-    const parsed = parseCoord(highlightParcelId);
+    const parsed = parseParceName(highlightParcelId);
     
     if (parsed && parsed.row >= 0 && parsed.row < PARCEL_ROWS && parsed.col >= 0 && parsed.col < PARCEL_COLS) {
       // Convert row/col to centered parcel coordinates
@@ -1455,7 +1449,7 @@
       // Let's calculate the bounding box for our svg element 
       // // Position horizontally centered with disk, vertically 2 diameters below disk center
 
-      const logoCenterLatLong = [0, 0];
+      const logoCenterLatLong = [ -2 * radiusMapUnits, 0];
       const logoWidthMapunits = radiusMapUnits * 2;     // Match the width of the disk
 
       const logoCenterPixels = map.latLngToContainerPoint(logoCenterLatLong);
