@@ -76,6 +76,20 @@ body {
   pointer-events: none;                             /* Don't block clicks on parcels */
 }
 
+/* CW&T logo marker wrapper - remove default Leaflet divIcon styles */
+.cwandt-logo-marker {
+  background: none !important;
+  border: none !important;
+}
+
+/* CW&T logo icon with smooth opacity transition */
+.cwandt-logo-icon {
+  transition: opacity 0.25s ease-in-out;
+  display: block;
+  width: 100%;   /* Fill the divIcon container width */
+  height: auto;  /* Maintain aspect ratio */
+}
+
 /* Parcel ID labels - thick blocky font, red with 70% transparency, centered */
 .parcel-label-id {
   pointer-events: none;                             /* Don't block map interactions */

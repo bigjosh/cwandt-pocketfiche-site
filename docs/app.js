@@ -125,17 +125,25 @@
     const h = TILE_SIZE;
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
-        <rect x="1.5" y="1.5" width="${w - 3}" height="${h - 3}" fill="none" stroke="#00000080" stroke-width="1" stroke-dasharray="5,5"/>
-        <g font-family="monospace" fill="#80000080" stroke="#80000080" stroke-width="1">
-          <text x="16" y="36" font-size="24">
+        <style>
+          @keyframes marching-ants {
+            to { stroke-dashoffset: -10; }
+          }
+          .animated-dash {
+            animation: marching-ants 0.5s linear infinite;
+          }
+        </style>
+        <rect x="0" y="0" width="${w}" height="${h}" fill="none" stroke="#00000080" stroke-width="1" stroke-dasharray="5,5" class="animated-dash"/>
+        <g font-family="monospace" fill="#80000080" stroke="#00000080" stroke-width="1">
+          <text x="${w / 2}" y="36" font-size="24" text-anchor="middle">
             z=${coords.z}
             x=${coords.x}
             y=${coords.y}
           </text>
           <text x="${w / 2}" y="${h / 2}" font-size="64" text-anchor="middle" dominant-baseline="middle">${title}</text>
-          <g stroke="#00000080" stroke-width="2" fill="#80000080">
-            <line x1="0" y1="0" x2="${w}" y2="${h}" />
-            <line x1="${w}" y1="0" x2="0" y2="${h}" />
+          <g stroke="#00000080" stroke-width="1" fill="#80000080">
+            <line x1="0" y1="0" x2="${w}" y2="${h}" stroke-dasharray="5,5" class="animated-dash" />
+            <line x1="${w}" y1="0" x2="0" y2="${h}" stroke-dasharray="5,5" class="animated-dash" />
           </g>
 
         </g>
@@ -227,6 +235,10 @@
   // Set default view (may be overridden by URL parameters later)
   map.fitBounds(initialBounds);
 
+  // Add a marker at latlong 0,0
+  L.marker([0, 0]).addTo(map);
+
+
   // Feelling debuggy - might delete
   // Passive status control: zoom + center (live)
   const StatusControl = L.Control.extend({
@@ -315,92 +327,104 @@
       let barWidthPixels;
       let label;
 
-      // At far zoom levels (-7 to -4), show astronomical scale (AU)
-      if (zoom <= -4) {
-        // Calculate pixels per map unit at current zoom
-        // At zoom 0, 1 map unit = 1 pixel
-        // At zoom -1, 1 map unit = 0.5 pixels (zoomed out 2x)
-        // At zoom -4, 1 map unit = 0.0625 pixels (zoomed out 16x)
-        const pixelsPerMapUnit = Math.pow(2, zoom);
-        
-        // Define available AU scales
-        const auScales = [
-          { factor: 0.01, label: '0.01 AU' },
-          { factor: 0.1, label: '0.1 AU' },
-          { factor: 1.0, label: '1 AU' },
-          { factor: 10.0, label: '10 AU' }
-        ];
-        
-        // Create a temporary canvas to measure text width
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        ctx.font = '12px monospace'; // Match the scale bar font
-        
-        const PADDING = 16; // Space padding on each end (8px per side)
-        
-        // Find the smallest AU scale where the label fits inside the bar
-        let selectedAU = auScales[auScales.length - 1]; // Default to largest (10 AU)
-        
-        for (let i = 0; i < auScales.length; i++) {
-          const auScale = auScales[i];
-          const widthPixels = EARTH_ORBIT_RADIUS_MAPUNITS * auScale.factor * pixelsPerMapUnit;
-          const textWidth = ctx.measureText(auScale.label).width;
+      // Scale bar ranges by zoom level
+      switch (true) {
+        case (zoom === -3):
+          // ===== CW&T SCALE (disk diameter) =====
+          // Disk diameter in map units (already calculated globally)
+          const diskDiameterMapUnits = radiusMapUnits * 2;
+          // Convert map units to pixels at current zoom (at zoom 0, 1 map unit = 1 pixel)
+          const pixelsPerMapUnit = Math.pow(2, zoom);
+          barWidthPixels = diskDiameterMapUnits * pixelsPerMapUnit;
+          label = '1cwt';
+          break;
           
-          // Check if text fits with padding
-          if (textWidth + PADDING <= widthPixels) {
-            selectedAU = auScale;
-            break;
+        case (zoom <= -5):
+          // ===== ASTRONOMICAL UNIT SCALE (solar system) =====
+          {
+            // Calculate pixels per map unit at current zoom
+            // At zoom 0, 1 map unit = 1 pixel
+            // At zoom -1, 1 map unit = 0.5 pixels (zoomed out 2x)
+            const pixelsPerMapUnit = Math.pow(2, zoom);
+            
+            // Define available AU scales
+            const auScales = [
+              { factor: 0.01, label: '0.01 AU' },
+              { factor: 0.1, label: '0.1 AU' },
+              { factor: 1.0, label: '1 AU' },
+              { factor: 10.0, label: '10 AU' }
+            ];
+            
+            // Create a temporary canvas to measure text width
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.font = '12px monospace';
+            
+            const PADDING = 16;
+            
+            // Find the smallest AU scale where the label fits inside the bar
+            let selectedAU = auScales[auScales.length - 1]; // Default to largest (10 AU)
+            
+            for (let i = 0; i < auScales.length; i++) {
+              const auScale = auScales[i];
+              const widthPixels = EARTH_ORBIT_RADIUS_MAPUNITS * auScale.factor * pixelsPerMapUnit;
+              const textWidth = ctx.measureText(auScale.label).width;
+              
+              if (textWidth + PADDING <= widthPixels) {
+                selectedAU = auScale;
+                break;
+              }
+            }
+            
+            barWidthPixels = Math.round(EARTH_ORBIT_RADIUS_MAPUNITS * selectedAU.factor * pixelsPerMapUnit);
+            label = selectedAU.label;
           }
-        }
-        
-        barWidthPixels = Math.round(EARTH_ORBIT_RADIUS_MAPUNITS * selectedAU.factor * pixelsPerMapUnit);
-        label = selectedAU.label;
-
-      } else {
-        // Calculate nanometers per pixel at this zoom level
-        // At zoom 6, 1 pixel = 1 µm = 1000 nm
-        // Each zoom level doubles/halves the scale
-        const nanometersPerPixel = 1000 / Math.pow(2, zoom - parcel_zoom);
-
-        // Define available scale sizes (all in nanometers)
-        // Power of 10: 10nm, 100nm, 1um, 10um, 100um, 1mm, 10mm, 100mm
-        const scales = [
-          { nm: 1000, label: '1um' },
-          { nm: 10000, label: '10um' },
-          { nm: 100000, label: '100um' },
-          { nm: 1000000, label: '1mm' },
-          { nm: 10000000, label: '10mm' },
-          { nm: 100000000, label: '100mm' },
-          { nm: 1000000000, label: '1m' }
-        ];
-        
-        // Create a temporary canvas to measure text width
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        ctx.font = '12px monospace'; // Match the scale bar font
-        
-        const PADDING = 16; // Space padding on each end (8px per side)
-
-        // I know there must be a better (non-iterative) way to do this, but I give up. 
-        
-        // Find the smallest scale where the label fits inside the bar
-        let selectedScale = scales[scales.length - 1]; // Default to largest (1m)
-        
-        for (let i = 0; i < scales.length; i++) {
-          const scale = scales[i];
-          const widthPixels = scale.nm / nanometersPerPixel;
-          const textWidth = ctx.measureText(scale.label).width;
+          break;
           
-          // Check if text fits with padding
-          if (textWidth + PADDING <= widthPixels) {
-            selectedScale = scale;
-            break;
+        default:
+          // This is the normal viewer scale
+          // ===== MICROMETER SCALE (parcel/fiche scale) =====
+          {
+            // Calculate nanometers per pixel at this zoom level
+            // At zoom 6, 1 pixel = 1 µm = 1000 nm
+            const nanometersPerPixel = 1000 / Math.pow(2, zoom - parcel_zoom);
+
+            // Define available scale sizes (all in nanometers)
+            const scales = [
+              { nm: 1000, label: '1um' },
+              { nm: 10000, label: '10um' },
+              { nm: 100000, label: '100um' },
+              { nm: 1000000, label: '1mm' },
+              { nm: 10000000, label: '10mm' },
+              { nm: 100000000, label: '100mm' },
+              { nm: 1000000000, label: '1m' }
+            ];
+            
+            // Create a temporary canvas to measure text width
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.font = '12px monospace';
+            
+            const PADDING = 16;
+            
+            // Find the smallest scale where the label fits inside the bar
+            let selectedScale = scales[scales.length - 1]; // Default to largest (1m)
+            
+            for (let i = 0; i < scales.length; i++) {
+              const scale = scales[i];
+              const widthPixels = scale.nm / nanometersPerPixel;
+              const textWidth = ctx.measureText(scale.label).width;
+              
+              if (textWidth + PADDING <= widthPixels) {
+                selectedScale = scale;
+                break;
+              }
+            }
+            
+            barWidthPixels = Math.round(selectedScale.nm / nanometersPerPixel);
+            label = selectedScale.label;
           }
-        }
-        
-        // Calculate the actual width in pixels for the selected scale
-        barWidthPixels = Math.round(selectedScale.nm / nanometersPerPixel);
-        label = selectedScale.label;
+          break;
       }
       
       // Update the container width and text
@@ -487,39 +511,146 @@
   // TODO: I am so sorry this is a crap ass png file, but I tried sop hard to extract a vector using the Mono Space font and
   // spent like an hour and still could not get it to work maybe someday someone can help me. 
   
-  
-  // Logo will be 100% of disk diameter, centered horazonally at origin
-  // and the top will start at 2 disk hights down from the origin
+  // Logo width will be 100% of disk diameter, height calculated to maintain aspect ratio
+  // With CRS.Simple, at zoom 0: 1 map unit = 1 pixel
+  // At zoom n: 1 map unit = 2^n pixels
+  // We use zoom 0 scale since icon size is fixed at creation time
 
-  const logoHalfWidth = radiusMapUnits;
-  const logoHalfHeight = logoHalfWidth * (48 / 180); // Maintain aspect ratio (logo is 180x48)
+  // This is a good level to make the logo appear becuase we know that the logo will fit int he viewport below the disk
+  // and we are zoomed out pasty where seeeing the parcles is useful.
+  const CWANT_LOGO_ZOOM_LEVEL = -2;  
   
-  const logoBounds = [
-    [-logoHalfHeight-2*radiusMapUnits, -logoHalfWidth],  // Southwest corner
-    [logoHalfHeight-2*radiusMapUnits, logoHalfWidth]     // Northeast corner
-  ];
+  const logoWidthMapUnits = radiusMapUnits * 2;
+  const logoHeightMapUnits = logoWidthMapUnits * (48 / 180); // Maintain aspect ratio (logo is 180x48). This must be hard coded or else we would have to wait for the image to load. :/
   
-  const cwandtImageOverlay = L.imageOverlay('cwandt-logo.png', logoBounds, {
-    opacity: 1.0,
-    interactive: true,  // Enable mouse events for clickability
-    pane: 'goldDiskPane'  // Same pane as gold disk so it's behind tiles
-  });
+  // // Convert to pixels at zoom 0 (where map units == pixels)
+  // const cwandtLogoWidthPx = logoWidthMapUnits * 2^CWANT_LOGO_ZOOM_LEVEL;  
+  // const cwandtLogoHeightPx = logoHeightMapUnits * 2^CWANT_LOGO_ZOOM_LEVEL;  
+  
+  // // Create the image element directly so we have a handle to it for opacity transitions
+  // const cwandtLogoImg = document.createElement('img');
+  // cwandtLogoImg.src = 'cwandt-logo.png';  
+  // cwandtLogoImg.className = 'cwandt-logo-icon';
 
-  // Make the logo clickable - opens CW&T website
-  cwandtImageOverlay.on('click', function() {
-    window.open('https://cwandt.com', '_blank');
-  });
-  
-  // Add pointer cursor when hovering over logo
-  cwandtImageOverlay.on('mouseover', function() {
-    document.body.style.cursor = 'pointer';
-  });
-  
-  cwandtImageOverlay.on('mouseout', function() {
-    document.body.style.cursor = '';
-  });
+  // console.log("cwandtLogoImg.outerHTML: " + cwandtLogoImg.outerHTML);
 
+  // // Use divIcon with our custom image element
+  // const cwandtImageDivIcon = L.divIcon({
+  //     html: cwandtLogoImg.outerHTML,
+  //     //iconSize: [cwandtLogoWidthPx, cwandtLogoHeightPx],  // Size in pixels
+  //     //iconAnchor: [cwandtLogoWidthPx / 2, cwandtLogoHeightPx / 2],  // Center anchor
+  //     className: 'cwandt-logo-marker'  // Wrapper class
+  // });
+
+  // const cwandtDivOverlay = L.divOverlay(cwandtImageDivIcon, [0, 0], {
+  //   interactive: true,  // we will control the interactivey using the mouseevents since there is no way I can find to update this attrib after creation. 
+  //   pane: 'goldDiskPane'  // Same pane as gold disk
+  // });
+
+  // Remmber that lat units go up as we go north.
+
+  // // We want the logo to be the same width as the disk, h centered at the center of the disk, and vertical center to be 2 diskhights down from the cenetr of the disk. 
+  // const logoBounds = [[ -2 * radiusMapUnits,   -logoWidthMapUnits/2], [logoHeightMapUnits/2, logoWidthMapUnits/2]];
+
+  // const cwandtImageOverlay = L.imageOverlay('cwandt-logo.png', logoBounds, {
+  //   interactive: true,  // we will control the interactivey using the mouseevents since there is no way I can find to update this attrib after creation. 
+  //   pane: 'goldDiskPane'  // Same pane as gold disk
+  // });
+
+  // const logoSvgElement = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  // logoSvgElement.setAttribute('xmlns', "http://www.w3.org/2000/svg");
+  // logoSvgElement.setAttribute('viewBox', "0 0 200 200");
+  // logoSvgElement.innerHTML = '<rect width="200" height="200"/><rect x="75" y="23" width="50" height="50" style="fill:red"/><rect x="75" y="123" width="50" height="50" style="fill:#0013ff"/>';
+  // const svgElementBounds = [ [ 32, -130 ], [ 13, -100 ] ];
+  // const logoSvgOverlay = L.svgOverlay(logoSvgElement, svgElementBounds).addTo(map);
+
+  // // Get the actual rendered SVG element from the overlay
+  // const renderedLogoSvg = logoSvgOverlay.getElement();
+  // renderedLogoSvg.style.transition = 'opacity 0.25s ease-in-out';
+
+  // // make accessable to the browser console
+  // window.logoSvgElement = renderedLogoSvg;
+
+  // const logoDivIcon = L.divIcon({
+  //   className: 'cwandt-logo-marker',
+  //   html: logoSvgElement.outerHTML,
+  //   iconSize: [logoWidthMapUnits, logoHeightMapUnits],
+  //   iconAnchor: [logoWidthMapUnits / 2, logoHeightMapUnits / 2]
+  // });
+
+  // L.marker([0, 0], {icon: logoDivIcon}).addTo(map);
+
+  // map.on("zoomstart", function() {
+  //   renderedLogoSvg.style.opacity = (renderedLogoSvg.style.opacity == 0) ?  1 : 0;
+  // });
+
+  // // Make the logo clickable - opens CW&T website
+  // cwandtDivOverlay.on('click', function() {
+  //   window.open('https://cwandt.com', '_blank');
+  // });
   
+  // // Add pointer cursor when hovering over logo
+  // cwandtDivOverlay.on('mouseover', function() {
+  //   document.body.style.cursor = 'pointer';
+  // });
+  
+  // cwandtDivOverlay.on('mouseout', function() {  
+  //   document.body.style.cursor = '';
+  // });
+
+
+  // --- CW&T Logo Control
+  // After so much effort, I finally found a way to position the svg in the viewport and still haev access to the element
+  // so we can use a transition to fade it in and out while the map is zooming. If you think you can do this better with an overly
+  /// good luck. 
+
+  // Let's put it into a immediate function to hide the messyness. All we need to remeber is the container variable
+  // so we can update the opacity and location of the svg element when we hit the zoom level where we want to show it.
+
+  // We create it here and make it hidden. Then we will add it to the map container and move it to where it belongs when we hit the zoom level and then make it visible. 
+
+  const cwandtLogoSvgDiv = (function() {
+
+    // Your SVG markup (any SVG works)
+    const mySVG = `
+      <svg viewBox="0 0 100 100" aria-label="logo">
+        <defs>
+          <radialGradient id="g"><stop offset="0" /><stop offset="1" stop-opacity="0"/></radialGradient>
+        </defs>
+        <circle cx="50" cy="50" r="46" fill="none" stroke="red" stroke-width="1"/>
+        <circle cx="50" cy="50" r="20" fill="url(#g)"/>
+        <path d="M20 80 L80 20" stroke="red" stroke-width="1" stroke-linecap="round"/>
+        <path d="M20 20 L80 80" stroke="red" stroke-width="1" stroke-linecap="round"/>
+        <rect x="0" y="0" width="100" height="100" fill="none" stroke="red" stroke-width="1"/>
+      </svg>
+    `;
+
+    // Parse SVG string into element
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = mySVG;
+    const svgElement = tempDiv.firstElementChild;  // Get the <svg> element
+    
+    // Style the SVG
+    svgElement.style.display = 'block';
+    svgElement.style.width = '100%';
+    svgElement.style.height = '100%';
+    
+    // Create a container div to hold the SVG
+    const container = document.createElement('div');
+    container.appendChild(svgElement);  // Add the SVG element we already have
+    container.style.position = 'absolute';
+    container.style.transition = 'opacity 0.25s ease-in-out';
+    container.style.pointerEvents = 'none';
+    container.style.zIndex = '1000';  // Above map tiles (200) and overlays (400)
+    container.style.opacity = 0;
+    return container;
+
+  })();
+
+  // Here we add the svg to the map container
+  // I wanted to only add it when we needed it, but then it is a pain becuase we want it to fade out when we leave the zoom level
+  // so we cant remove it until after the fade finished asynchronously and then one if they fade back in again... so it is always hanging around.
+  map.getContainer().appendChild(cwandtLogoSvgDiv);
 
   // --- Create grid line layer
 
@@ -931,7 +1062,12 @@
   // Add default layers - gold disk first (behind), then parcels (on top)
 
   circleLayer.addTo(map);
-  cwandtImageOverlay.addTo(map);
+  //cwandtImageOverlayMarker.addTo(map);
+  
+  // Get the actual logo image element that Leaflet inserted into the DOM
+  //const cwandtLogoImgInDOM = cwandtImageOverlayMarker._icon?.querySelector('.cwandt-logo-icon');
+  //console.log("Logo img in DOM:", cwandtLogoImgInDOM);
+  
   parcelsLayer.addTo(map);
 
   // Scale control is on by default
@@ -1227,32 +1363,148 @@
     }
   }
 
-  // Logo should fade at zoom=-6 and disappear when zoom=-7
-
+  // Logo should fade smoothly during zoom animation
+  // Fully visible at zoom -3, fully transparent at zoom -2 and below
   function updateCwandtImageVisibility() {
     const zoom = map.getZoom();
 
-    if (zoom >= -5) {
-      cwandtImageOverlay.setOpacity(1); 
-    } else if (zoom == -6) {  
-      cwandtImageOverlay.setOpacity(0.5); 
+    // Define fade range: visible at -3.5 and below, hidden at -2.5 and above
+    const fadeOutStart = -3.5;  // Start fading out
+    const fadeOutEnd = -2.5;    // Completely transparent
+    
+    let opacity;
+    
+    if (zoom <= fadeOutStart) {
+      // Fully visible when zoomed out past -3.5
+      opacity = 1;
+    } else if (zoom >= fadeOutEnd) {
+      // Fully transparent when zoomed in past -2.5
+      opacity = 0;
     } else {
-      cwandtImageOverlay.setOpacity(0);
+      // Smoothly interpolate opacity during zoom animation
+      // Map zoom range [-3.5, -2.5] to opacity range [1, 0]
+      const range = fadeOutEnd - fadeOutStart;
+      const position = zoom - fadeOutStart;
+      opacity = 1 - (position / range);
     }
+    
+    cwandtImageOverlayMarker.setOpacity(opacity);
   }
+
   
   function zoomChanged() {
     updateHighlightVisibility();
     updateGridVisibility();
     updateSolarSystemVisibility();
     updateDiskColor();
-    updateCwandtImageVisibility();  
+    //updateCwandtImageVisibility();  
   }
 
   map.on('zoom', zoomChanged);
-
-  // Initialize eveerything right to get started. 
+  // Initialize everything right to get started. 
   zoomChanged();
+
+  // ---- Special handling for the cwandt logo zoom level
+
+  // For the cwandt layer things are a bit different becuase we want the logo to fade in *after* we land on the
+  // zoom level and fade out *before* we zoom to the next level. So we have to specifically catch the start and end events
+
+  // This is overly complicated becuase leaflet doewsn't give us access to the underlying image element so we have to 
+  // use DOM manipulation to control the opacity. 
+
+  map.on('zoomstart', function() {
+    if (map.getZoom() == CWANT_LOGO_ZOOM_LEVEL ) {
+      // We are leaving the logo zoom level, start fading out immediately
+      // Direct DOM manipulation of the image allows CSS transition to work during zoom animation
+      
+      cwandtLogoSvgDiv.style.opacity = 0;      
+      cwandtLogoSvgDiv.style.pointerEvents = 'none';
+    }
+  });
   
+  map.on('zoomend', function() {  
+    if (map.getZoom() == CWANT_LOGO_ZOOM_LEVEL ) {
+      // We arrived at the logo zoom level, so position it below the disk and fade it in
+
+      // Position it below the disk
+
+      // We need to put the svg below the disk. The disk is a leaflet thing, not a DOM element so we have to use the map to get the position of the disk
+
+
+      
+      // // DEBUG: Draw a green X at diskCenterPixels
+      // const debugX = document.createElement('div');
+      // debugX.style.position = 'absolute';
+      // debugX.style.left = diskCenterPixels.x + 'px';
+      // debugX.style.top = diskCenterPixels.y + 'px';
+      // debugX.style.width = '20px';
+      // debugX.style.height = '20px';
+      // debugX.style.pointerEvents = 'none';
+      // debugX.style.zIndex = '10000';
+      // debugX.innerHTML = '<svg viewBox="0 0 20 20"><line x1="0" y1="0" x2="20" y2="20" stroke="lime" stroke-width="2"/><line x1="0" y1="20" x2="20" y2="0" stroke="lime" stroke-width="2"/></svg>';
+      // document.body.appendChild(debugX);
+      
+      // Calculate disk diameter in pixels at current zoom
+      // radiusMapUnits is in map coordinates, convert to pixels
+      const diskDiameterMapUnits = radiusMapUnits * 2;
+      
+      // Scale SVG to match disk width
+      // cwandtLogoControlContainer.style.width = diskDiameterPixels + 'px';
+      // cwandtLogoControlContainer.style.height = diskDiameterPixels + 'px';
+
+      // Let's calculate the bounding box for our svg element 
+      // // Position horizontally centered with disk, vertically 2 diameters below disk center
+
+      const logoCenterLatLong = [0, 0];
+      const logoWidthMapunits = radiusMapUnits * 2;     // Match the width of the disk
+
+      const logoCenterPixels = map.latLngToContainerPoint(logoCenterLatLong);
+      console.log("logoCenterPixels: " + logoCenterPixels);
+
+      // Next lets find the width of the svg in pixels. We want it to be the same width as the disk.
+
+      logoLeftEdgeX = map.latLngToContainerPoint([0, -radiusMapUnits]).x;
+      logoRightEdgeX = map.latLngToContainerPoint([0, radiusMapUnits]).x;
+      console.log("logoLeftEdgeX: " + logoLeftEdgeX);
+      console.log("logoRightEdgeX: " + logoRightEdgeX);
+
+      logoWidthPixels = logoRightEdgeX - logoLeftEdgeX;
+      console.log("logoWidthPixels: " + logoWidthPixels);
+    
+      cwandtLogoSvgDiv.style.left = logoCenterPixels.x + 'px';
+      cwandtLogoSvgDiv.style.top = logoCenterPixels.y + 'px';
+
+      cwandtLogoSvgDiv.style.width = logoWidthPixels + 'px';
+      // Center both horizontally and vertically on the point      
+      cwandtLogoSvgDiv.style.transform = 'translate(-50%, -50%)'; 
+      
+      // Fade it in
+      cwandtLogoSvgDiv.style.opacity = 1;      
+      cwandtLogoSvgDiv.style.pointerEvents = 'auto';
+
+    }
+  });
+
+  // map.on('zoomend', function() {  
+
+  //   // Put a green X at latlong( 0,0)
+  //   // Convert disk center (map coordinate [0, 0]) to viewport pixels
+  //   const diskCenterPixels = map.latLngToContainerPoint([0, 0]);
+    
+  //   // DEBUG: Draw a green X at diskCenterPixels
+  //   const debugX = document.createElement('div');
+  //   debugX.style.position = 'absolute';
+  //   debugX.style.left = diskCenterPixels.x + 'px';
+  //   debugX.style.top = diskCenterPixels.y + 'px';
+  //   debugX.style.width = '20px';
+  //   debugX.style.height = '20px';
+  //   debugX.style.pointerEvents = 'none';
+  //   debugX.style.zIndex = '10000';
+  //   debugX.innerHTML = '<svg viewBox="0 0 20 20"><line x1="0" y1="0" x2="20" y2="20" stroke="lime" stroke-width="2"/><line x1="0" y1="20" x2="20" y2="0" stroke="lime" stroke-width="2"/></svg>';
+  //   debugX.style.transform = 'translate(-50%, -50%)';
+  //   map.getContainer().appendChild(debugX);
+    
+  // });
+
 
 })();
