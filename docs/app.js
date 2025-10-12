@@ -92,24 +92,26 @@
 
   // Parse a coordinate string like 'H4' or 'AA12'
   // Coordinate system: A1 is in the lower-left corner
-  // - Letters (A, B, ..., Z, AA, AB, ...) represent COLUMNS, incrementing left-to-right
-  // - Numbers (1, 2, 3, ...) represent ROWS, incrementing bottom-to-top
-  // Tolerates an optional embedded ":" to match the format used in the kickstarter campaign (ok to have: https://stackoverflow.com/questions/2053132/is-a-colon-safe-for-friendly-url-use)
+  // Parse parcel names like "A1", "B5", "AL38"
+  // - Letters (A, B, ..., Z, AA, AB, ..., AL) represent Y axis (vertical), incrementing north (up)
+  // - Numbers (1, 2, 3, ..., 38) represent X axis (horizontal), incrementing east (right)
+  // - A1 is at bottom-left corner
+  // Tolerates an optional embedded ":" to match the format used in the kickstarter campaign
   function parseParceName(name) {
     // Make case-insensitive by converting to uppercase
     const normalizedCoord = name.toUpperCase().trim().replace(':', '');
     const m = /^([A-Z]+)(\d+)$/.exec(normalizedCoord);
     if (!m) return null;
     const letters = m[1];
-    const rowNum = parseInt(m[2], 10);
-    if (!Number.isFinite(rowNum)) return null;
-    const colIdx = lettersToIndex(letters);
-    if (colIdx == null) return null;
+    const xNum = parseInt(m[2], 10);
+    if (!Number.isFinite(xNum)) return null;
+    const yIdx = lettersToIndex(letters);  // Letters = Y axis
+    if (yIdx == null) return null;
 
-    // Letters map to column index (horizontal position)
-    // Numbers map to row index (vertical position, 1-based). Convert to 0-based.
-    const rowIdx = rowNum - 1;
-    return { row: rowIdx, col: colIdx, letters, number: rowNum };
+    // Letters map to Y index (vertical position, A=0, B=1, ..., AL=37)
+    // Numbers map to X index (horizontal position, 1-based). Convert to 0-based.
+    const xIdx = xNum - 1;
+    return { row: yIdx, col: xIdx, letters, number: xNum };
   }
 
   // Build image URL for a coordinate key (e.g., 'H4' -> tiles/tile-H4.png)
@@ -930,15 +932,19 @@
     const parsed = parseParceName(highlightParcelId);
     
     if (parsed && parsed.row >= 0 && parsed.row < PARCEL_ROWS && parsed.col >= 0 && parsed.col < PARCEL_COLS) {
-      // Convert row/col to centered parcel coordinates
-      const parcelX = parsed.col - PARCEL_COLS / 2;
-      const parcelY = parsed.row - PARCEL_ROWS / 2;
+      // Convert to parcel coordinates centered at origin
+      // Letters (A-AL) = Y axis (vertical), north (up): parsed.row = 0 to 37
+      // Numbers (1-38) = X axis (horizontal), east (right): parsed.col = 0 to 37
+      // A1 is at bottom left: row=0, col=0 → X=-19, Y=-19
+      // With 38 parcels, they span from -19 to +19 in parcel units
+      const parcelX = parsed.col - PARCEL_COLS / 2;  // col 0 (1) → X=-19, col 37 (38) → X=+18
+      const parcelY = parsed.row - PARCEL_ROWS / 2;  // row 0 (A) → Y=-19, row 37 (AL) → Y=+18
       
       // Calculate the parcel bounds in map units
       const x0 = parcelX * mapunit_per_parceltile;
-      const y0 = parcelY * mapunit_per_parceltile;
       const x1 = x0 + mapunit_per_parceltile;
-      const y1 = y0 + mapunit_per_parceltile;
+      const y0 = parcelY * mapunit_per_parceltile;  // Bottom edge
+      const y1 = y0 + mapunit_per_parceltile;  // Top edge
       
       // Create a rectangle with blue 3px border to highlight the parcel
       const highlightRect = L.rectangle(
