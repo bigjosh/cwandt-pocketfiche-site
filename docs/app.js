@@ -232,6 +232,9 @@
   // Set default view (may be overridden by URL parameters later)
   map.fitBounds(initialBounds);
 
+
+  // --- Status Control. Shows where you are in the world. (not really needed now that the location and zoom are in the URL)
+
   // Feelling debuggy - might delete
   // Passive status control: zoom + center (live)
   const StatusControl = L.Control.extend({
@@ -260,6 +263,16 @@
 
   // Create the control but don't add it yet - we'll add it via layer control
   const statusControl = new StatusControl({ position: 'bottomleft' });
+
+  // Create a wrapper layer for the status control so it can be toggled
+  const statusControlLayer = L.layerGroup();
+  statusControlLayer.onAdd = function(map) {
+    map.addControl(statusControl);
+  };
+  statusControlLayer.onRemove = function(map) {
+    map.removeControl(statusControl);
+  };
+
 
   // Custom scale bar that shows correct scale for our tiny world
   // Range: 10nm to 100mm
@@ -787,14 +800,6 @@
   });
 
 
-  // Create a wrapper layer for the status control so it can be toggled
-  const statusControlLayer = L.layerGroup();
-  statusControlLayer.onAdd = function(map) {
-    map.addControl(statusControl);
-  };
-  statusControlLayer.onRemove = function(map) {
-    map.removeControl(statusControl);
-  };
   
   // Create a wrapper layer for the scale control so it can be toggled
   const scaleControlLayer = L.layerGroup();
@@ -808,7 +813,7 @@
   const overlayLayers = {
     //"Solar System": solarSystemLayer,   // people should discover this, not see it in the menu!
     "Parcel Labels": parcelLabelsLayer,
-    "Status Display": statusControlLayer,    // not really needed anymore now that this info is in the URL
+    // "Status Display": statusControlLayer,    // not really needed anymore now that this info is in the URL
     "Scale Bar": scaleControlLayer,
     //"Debug Tiles": debugLayer,
   };
@@ -1032,6 +1037,12 @@
     // Add debug layer to map and layer control
     debugLayer.addTo(map);
     layersControl.addOverlay(debugLayer, "Debug Tiles");
+  }
+
+  // Check if parcel names should be shown based on URL parameter
+  const showNames = urlParams.get('names') === 'true';
+  if (showNames) {
+    parcelLabelsLayer.addTo(map);
   }
 
   // --- Zoom-based transitions for gold disk color
