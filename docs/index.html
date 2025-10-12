@@ -6,6 +6,10 @@
   <title>Pocketfiche Parcels Viewer</title>
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Google Fonts: Space Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400&display=swap" rel="stylesheet">
   <!-- App CSS -->
   <link rel="stylesheet" href="style.css" />
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
@@ -19,6 +23,13 @@
     We are using Leaflet with a simple pixel-based CRS (L.CRS.Simple) so that
     one map unit corresponds to one pixel.
   -->
+  
+  <!-- Banner at top of screen -->
+  <div id="banner">
+    <div class="banner-line">this is the cw&t pocket fische project</div>
+    <div class="banner-line">claim your parcel <a href="https://www.kickstarter.com/projects/cwandt/pocket-fiche/?ref=jml" target="_blank" rel="noopener">here</a></div>
+  </div>
+  
   <div id="map" aria-label="Pocketfiche parcels map" role="region"></div>
 
   <!-- Leaflet JS -->

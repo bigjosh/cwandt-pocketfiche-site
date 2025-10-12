@@ -1205,5 +1205,43 @@
     }
   });
 
+  // --- Dynamic Banner Font Sizing
+  // Adjust banner font size so text fills 75% of viewport width
+  function resizeBanner() {
+    const banner = document.getElementById('banner');
+    if (!banner) return;
+    
+    const targetWidth = window.innerWidth * 0.60; // 60% of viewport width
+    let fontSize = 10; // Start small
+    banner.style.fontSize = fontSize + 'px';
+    
+    // Binary search for optimal font size
+    let low = 10;
+    let high = 200;
+    let bestSize = 10;
+    
+    while (high - low > 1) {
+      const mid = Math.floor((low + high) / 2);
+      banner.style.fontSize = mid + 'px';
+      
+      const width = banner.offsetWidth;
+      
+      if (width < targetWidth) {
+        low = mid;
+        bestSize = mid;
+      } else if (width > targetWidth) {
+        high = mid;
+      } else {
+        bestSize = mid;
+        break;
+      }
+    }
+    
+    banner.style.fontSize = bestSize + 'px';
+  }
+  
+  // Size banner on load and window resize
+  resizeBanner();
+  window.addEventListener('resize', resizeBanner);
 
 })();
