@@ -46,6 +46,15 @@
   // We defined 1 mapunit to be 1 pixel wide at world zoom
   const mapunit_per_worldtile = TILE_SIZE
 
+  // This is where the CW&T logo shows, and the disk will be cw&t organge.
+  // This is a good level to make the logo appear becuase we know that the logo will fit int he viewport below the disk
+  // and we are zoomed out pasty where seeeing the parcles is useful.
+  const CWANT_LOGO_ZOOM_LEVEL = -2;    
+
+  // After zoom 6, we are just scaling images, but let the people have thier fun
+  // maybe some day we will put something interesting down here. 
+  const MAP_MAX_ZOOM = 11;
+
   // --- calculate constants to help with layout
 
   const mapunit_per_parceltile = mapunit_per_worldtile / parcels_per_world_ratio 
@@ -194,7 +203,7 @@
   const map = L.map('map', {
     crs: CRS_CENTERED,
     minZoom: -7,
-    maxZoom: 10,
+    maxZoom: MAP_MAX_ZOOM,
     zoomControl: true,
     attributionControl: false,
     renderer: svgRenderer,  // Force SVG rendering for all paths
@@ -313,7 +322,7 @@
 
       // Scale bar ranges by zoom level
       switch (true) {
-        case (zoom === -3):
+        case (zoom === CWANT_LOGO_ZOOM_LEVEL):
           // ===== CW&T SCALE (disk diameter) =====
           // Disk diameter in map units (already calculated globally)
           const diskDiameterMapUnits = radiusMapUnits * 2;
@@ -451,10 +460,10 @@
   const parcelsLayer = new L.TileLayer(  TILE_URL_TEMPLATE , {       
     tileSize: TILE_SIZE,  
     bounds: worldBounds,
-    minNativeZoom: 0,   // The native sooms Are driven by how many tile sizes we have on the server (driven in build_world.py)
-    maxNativeZoom: 6,   // This range covers 1 parcel pixel=1 tile  pixel out to where all parcels fit in a single tile. 
-    minZoom: -2,        // Automatically hide parcels when zoomed out to solar system scale. 
-    maxZoom: 10,        
+    minNativeZoom: 0,                 // The native sooms Are driven by how many tile sizes we have on the server (driven in build_world.py)
+    maxNativeZoom: 6,                 // This range covers 1 parcel pixel=1 tile  pixel out to where all parcels fit in a single tile. 
+    minZoom: CWANT_LOGO_ZOOM_LEVEL+1, // Automatically hide parcels at and below the logo zoom level. 
+    maxZoom: MAP_MAX_ZOOM,        
     noWrap: true,
     // updateWhenIdle: true,  // The default seems right - yes for mobile, no for desktop
   });      
@@ -490,98 +499,6 @@
   
   circleLayer.addLayer(circle);
 
-  // -- CWandT Layer
-  // Display the CW&T logo as an overlay on the gold disk
-  // TODO: I am so sorry this is a crap ass png file, but I tried sop hard to extract a vector using the Mono Space font and
-  // spent like an hour and still could not get it to work maybe someday someone can help me. 
-  
-  // Logo width will be 100% of disk diameter, height calculated to maintain aspect ratio
-  // With CRS.Simple, at zoom 0: 1 map unit = 1 pixel
-  // At zoom n: 1 map unit = 2^n pixels
-  // We use zoom 0 scale since icon size is fixed at creation time
-
-  // This is a good level to make the logo appear becuase we know that the logo will fit int he viewport below the disk
-  // and we are zoomed out pasty where seeeing the parcles is useful.
-  const CWANT_LOGO_ZOOM_LEVEL = -2;  
-  
-  const logoWidthMapUnits = radiusMapUnits * 2;
-  const logoHeightMapUnits = logoWidthMapUnits * (48 / 180); // Maintain aspect ratio (logo is 180x48). This must be hard coded or else we would have to wait for the image to load. :/
-  
-  // // Convert to pixels at zoom 0 (where map units == pixels)
-  // const cwandtLogoWidthPx = logoWidthMapUnits * 2^CWANT_LOGO_ZOOM_LEVEL;  
-  // const cwandtLogoHeightPx = logoHeightMapUnits * 2^CWANT_LOGO_ZOOM_LEVEL;  
-  
-  // // Create the image element directly so we have a handle to it for opacity transitions
-  // const cwandtLogoImg = document.createElement('img');
-  // cwandtLogoImg.src = 'cwandt-logo.png';  
-  // cwandtLogoImg.className = 'cwandt-logo-icon';
-
-  // console.log("cwandtLogoImg.outerHTML: " + cwandtLogoImg.outerHTML);
-
-  // // Use divIcon with our custom image element
-  // const cwandtImageDivIcon = L.divIcon({
-  //     html: cwandtLogoImg.outerHTML,
-  //     //iconSize: [cwandtLogoWidthPx, cwandtLogoHeightPx],  // Size in pixels
-  //     //iconAnchor: [cwandtLogoWidthPx / 2, cwandtLogoHeightPx / 2],  // Center anchor
-  //     className: 'cwandt-logo-marker'  // Wrapper class
-  // });
-
-  // const cwandtDivOverlay = L.divOverlay(cwandtImageDivIcon, [0, 0], {
-  //   interactive: true,  // we will control the interactivey using the mouseevents since there is no way I can find to update this attrib after creation. 
-  //   pane: 'goldDiskPane'  // Same pane as gold disk
-  // });
-
-  // Remmber that lat units go up as we go north.
-
-  // // We want the logo to be the same width as the disk, h centered at the center of the disk, and vertical center to be 2 diskhights down from the cenetr of the disk. 
-  // const logoBounds = [[ -2 * radiusMapUnits,   -logoWidthMapUnits/2], [logoHeightMapUnits/2, logoWidthMapUnits/2]];
-
-  // const cwandtImageOverlay = L.imageOverlay('cwandt-logo.png', logoBounds, {
-  //   interactive: true,  // we will control the interactivey using the mouseevents since there is no way I can find to update this attrib after creation. 
-  //   pane: 'goldDiskPane'  // Same pane as gold disk
-  // });
-
-  // const logoSvgElement = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  // logoSvgElement.setAttribute('xmlns', "http://www.w3.org/2000/svg");
-  // logoSvgElement.setAttribute('viewBox', "0 0 200 200");
-  // logoSvgElement.innerHTML = '<rect width="200" height="200"/><rect x="75" y="23" width="50" height="50" style="fill:red"/><rect x="75" y="123" width="50" height="50" style="fill:#0013ff"/>';
-  // const svgElementBounds = [ [ 32, -130 ], [ 13, -100 ] ];
-  // const logoSvgOverlay = L.svgOverlay(logoSvgElement, svgElementBounds).addTo(map);
-
-  // // Get the actual rendered SVG element from the overlay
-  // const renderedLogoSvg = logoSvgOverlay.getElement();
-  // renderedLogoSvg.style.transition = 'opacity 0.25s ease-in-out';
-
-  // // make accessable to the browser console
-  // window.logoSvgElement = renderedLogoSvg;
-
-  // const logoDivIcon = L.divIcon({
-  //   className: 'cwandt-logo-marker',
-  //   html: logoSvgElement.outerHTML,
-  //   iconSize: [logoWidthMapUnits, logoHeightMapUnits],
-  //   iconAnchor: [logoWidthMapUnits / 2, logoHeightMapUnits / 2]
-  // });
-
-  // L.marker([0, 0], {icon: logoDivIcon}).addTo(map);
-
-  // map.on("zoomstart", function() {
-  //   renderedLogoSvg.style.opacity = (renderedLogoSvg.style.opacity == 0) ?  1 : 0;
-  // });
-
-  // // Make the logo clickable - opens CW&T website
-  // cwandtDivOverlay.on('click', function() {
-  //   window.open('https://cwandt.com', '_blank');
-  // });
-  
-  // // Add pointer cursor when hovering over logo
-  // cwandtDivOverlay.on('mouseover', function() {
-  //   document.body.style.cursor = 'pointer';
-  // });
-  
-  // cwandtDivOverlay.on('mouseout', function() {  
-  //   document.body.style.cursor = '';
-  // });
-
 
   // --- CW&T Logo Control
   // After so much effort, I finally found a way to position the svg in the viewport and still haev access to the element
@@ -591,12 +508,12 @@
   // Let's put it into a immediate function to hide the messyness. All we need to remeber is the container variable
   // so we can update the opacity and location of the svg element when we hit the zoom level where we want to show it.
 
-  // We create it here and make it hidden. Then we will add it to the map container and move it to where it belongs when we hit the zoom level and then make it visible. 
+  // We the svg inside div element and make it hidden. Then we will add it to the map container and move it to where it belongs when we hit the zoom level and then make it visible. 
 
   const cwandtLogoSvgDiv = (function() {
 
-    // Your SVG markup (any SVG works)
-    const mySVG = `
+    // If youj ever need the CWT logo as a tight SVG... here you go! (generated by exporting simplified SVG from inkscape)
+    const cwtSVG = `
       <svg viewBox="49 53 6 3" aria-label="CW and T lovel logo text">
       <g fill="#ffffffff" >
         <path d="m49.909 55.049q0.09102 0 0.15452-0.02963 0.06562-0.03175 0.10583-0.08255 0.04233-0.05292 0.06138-0.11853 0.02117-0.06773 0.02117-0.14182v-0.0254h0.1778v0.0254q0 0.11218-0.03387 0.21167-0.03387 0.09737-0.09948 0.17145-0.06562 0.07197-0.16298 0.1143-0.09737 0.04022-0.22437 0.04022-0.24553 0-0.38312-0.15452-0.13758-0.15452-0.13758-0.45085v-0.3302q0-0.28787 0.13758-0.44662 0.13758-0.15875 0.38312-0.15875 0.127 0 0.22437 0.04233 0.09737 0.04022 0.16298 0.1143 0.06562 0.07197 0.09948 0.17145 0.03387 0.09737 0.03387 0.20955v0.0254h-0.1778v-0.0254q-0.0021-0.07197-0.02328-0.1397-0.01905-0.06773-0.06138-0.11853-0.04022-0.05292-0.10372-0.08255-0.0635-0.03175-0.15452-0.03175-0.17145 0-0.25823 0.12488-0.08467 0.12488-0.08467 0.32808v0.3048q0 0.21802 0.08467 0.33655 0.08678 0.11642 0.25823 0.11642z"/>
@@ -607,34 +524,34 @@
       </svg>
     `;
 
-
-// viewBox: "0 0 180 48" });
-//   svg.appendChild(el("rect",{x:0,y:0,width:180,height:48,fill:"#000"}));
-
-//   const C = el("path",{fill:"#fff","fill-rule":"evenodd",
-//     d:""});
-//   const W = el("path",{fill:"#fff",
-//     d:"M60,6 L68,42 L78,18 L88,42 L96,6 L88,6 L83,28 L78,16 L73,28 L68,6 Z"});
-//   const amp = el("path",{fill:"#fff","fill-rule":"evenodd",
-//     d:"M118,12 A9,9 0 1 0 118,30 A9,9 0 1 0 118,12 Z M118,16 A5,5 0 1 1 118,26 A5,5 0 1 1 118,16 Z M126,30 A6.5,6.5 0 1 0 126,43 A6.5,6.5 0 1 0 126,30 Z M126,33 A3.5,3.5 0 1 1 126,40 A3.5,3.5 0 1 1 126,33 Z M109,32 L113,28 L138,6 L134,10 Z"});
-//   const T = el("path",{fill:"#fff",d:"M150,6 H176 V12 H165 V42 H161 V12 H150 Z"});
-
-//     // Parse SVG string into element
+    // Parse SVG string into element
     const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = mySVG;
-    const svgElement = tempDiv.firstElementChild;  // Get the <svg> element
+    tempDiv.innerHTML = cwtSVG;
+    const svgElement = tempDiv.firstElementChild;  // Get the <svg> element. There must be a better way, right?
     
-    // Style the SVG
+    // Style the SVG to fill the div
     svgElement.style.display = 'block';
     svgElement.style.width = '100%';
     svgElement.style.height = '100%';
     
-    // Create a container div to hold the SVG
+    // Create a link wrapper for the SVG
+    const link = document.createElement('a');
+    link.href = 'https://cwandt.com';
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.style.display = 'block';
+    link.style.width = '100%';
+    link.style.height = '100%';
+    link.style.cursor = 'pointer';
+    link.appendChild(svgElement);
+    
+    // Create a container div to hold the link
+    // I tried to just use an SVG element directly but it didn't work so chatgpt suggested this and it works. 
     const container = document.createElement('div');
-    container.appendChild(svgElement);  // Add the SVG element we already have
+    container.appendChild(link);
     container.style.position = 'absolute';
     container.style.transition = 'opacity 0.25s ease-in-out';
-    container.style.pointerEvents = 'none';
+    container.style.pointerEvents = 'auto';  // Enable pointer events for clickability
     container.style.zIndex = '1000';  // Above map tiles (200) and overlays (400)
     container.style.opacity = 0;
     return container;
@@ -648,85 +565,86 @@
 
   // --- Create grid line layer
 
-  const gridLayer = L.layerGroup();
-  
-  // We need to use map units for the grid lines
-  // We want spacing between lines to be 1 tile at zoom 6 (the definition of zoom 6 is 1 tile is one parcel)
-
-  // a grid line between every parcel
-
-  const GRID_SPACING_MAPUNITS = mapunit_per_parceltile;
-
-  // Use the gold disk radius to constrain grid lines within the circle
-  // For a circle centered at (0,0) with radius R:
-  // - Horizontal line at y=y0 intersects at x = +/- SQRT(R^2 - y0^2)
-  // - Vertical line at x=x0 intersects at y = +/- SQRT(R^2 - x0^2)
-  // 
-  // Additionally, clip to the shorter of:
-  // 1. Circle boundary (rounded down to nearest parcel boundary)
-  // 2. Edge of 38x38 parcel grid
-  
-  const R = radiusMapUnits; // Circle radius in map units
-  
-  // Grid boundary: 38x38 grid centered at origin means ±19 parcels from center
-  const gridHalfWidth = (PARCEL_COLS / 2) * GRID_SPACING_MAPUNITS;
-  const gridHalfHeight = (PARCEL_ROWS / 2) * GRID_SPACING_MAPUNITS;
-  
-  // Horizontal lines (constant y, varying x)
-  for (let i = -1 * (PARCEL_COLS/2); i <= PARCEL_COLS/2; i += 1) {
-    const y = i * GRID_SPACING_MAPUNITS;
+  const gridLayer = (function() {
+    const layer = L.layerGroup();
     
-    // Check if this line intersects the circle
-    if (Math.abs(y) <= R) {
-      // Calculate x intersection with circle: x = ±√(R² - y²)
-      const xCircle = Math.sqrt(R * R - y * y);
+    // We need to use map units for the grid lines
+    // We want spacing between lines to be 1 tile at zoom 6 (the definition of zoom 6 is 1 tile is one parcel)
+    // a grid line between every parcel
+
+    const GRID_SPACING_MAPUNITS = mapunit_per_parceltile;
+
+    // Use the gold disk radius to constrain grid lines within the circle
+    // For a circle centered at (0,0) with radius R:
+    // - Horizontal line at y=y0 intersects at x = +/- SQRT(R^2 - y0^2)
+    // - Vertical line at x=x0 intersects at y = +/- SQRT(R^2 - x0^2)
+    // 
+    // Additionally, clip to the shorter of:
+    // 1. Circle boundary (rounded down to nearest parcel boundary)
+    // 2. Edge of 38x38 parcel grid
+    
+    const R = radiusMapUnits; // Circle radius in map units
+    
+    // Grid boundary: 38x38 grid centered at origin means ±19 parcels from center
+    const gridHalfWidth = (PARCEL_COLS / 2) * GRID_SPACING_MAPUNITS;
+    const gridHalfHeight = (PARCEL_ROWS / 2) * GRID_SPACING_MAPUNITS;
+    
+    // Horizontal lines (constant y, varying x)
+    for (let i = -1 * (PARCEL_COLS/2); i <= PARCEL_COLS/2; i += 1) {
+      const y = i * GRID_SPACING_MAPUNITS;
       
-      // Round down to nearest parcel boundary
-      const xCircleParcels = Math.floor(xCircle / GRID_SPACING_MAPUNITS);
-      const xCircleRounded = xCircleParcels * GRID_SPACING_MAPUNITS;
-      
-      // Take the minimum of circle extent and grid extent
-      const xExtent = Math.min(xCircleRounded, gridHalfWidth);
-      
-      // Only draw if extent is positive
-      if (xExtent > 0) {
-        const line = L.polyline([
-          [y, -xExtent],  // Start point (y, -x)
-          [y, xExtent]    // End point (y, +x)
-        ], { className: 'grid-line' });
-        gridLayer.addLayer(line);
+      // Check if this line intersects the circle
+      if (Math.abs(y) <= R) {
+        // Calculate x intersection with circle: x = ±√(R² - y²)
+        const xCircle = Math.sqrt(R * R - y * y);
+        
+        // Round down to nearest parcel boundary
+        const xCircleParcels = Math.floor(xCircle / GRID_SPACING_MAPUNITS);
+        const xCircleRounded = xCircleParcels * GRID_SPACING_MAPUNITS;
+        
+        // Take the minimum of circle extent and grid extent
+        const xExtent = Math.min(xCircleRounded, gridHalfWidth);
+        
+        // Only draw if extent is positive
+        if (xExtent > 0) {
+          const line = L.polyline([
+            [y, -xExtent],  // Start point (y, -x)
+            [y, xExtent]    // End point (y, +x)
+          ], { className: 'grid-line' });
+          layer.addLayer(line);
+        }
       }
     }
-  }
 
-  // Vertical lines (constant x, varying y)
-  for (let i = -1 * (PARCEL_ROWS/2); i <= PARCEL_ROWS/2; i += 1) {
-    const x = i * GRID_SPACING_MAPUNITS;
-    
-    // Check if this line intersects the circle
-    if (Math.abs(x) <= R) {
-      // Calculate y intersection with circle: y = abs(sqrt(R^2 - x^2)
-      const yCircle = Math.sqrt(R * R - x * x);
+    // Vertical lines (constant x, varying y)
+    for (let i = -1 * (PARCEL_ROWS/2); i <= PARCEL_ROWS/2; i += 1) {
+      const x = i * GRID_SPACING_MAPUNITS;
       
-      // Round down to nearest parcel boundary
-      const yCircleParcels = Math.floor(yCircle / GRID_SPACING_MAPUNITS);
-      const yCircleRounded = yCircleParcels * GRID_SPACING_MAPUNITS;
-      
-      // Take the minimum of circle extent and grid extent
-      const yExtent = Math.min(yCircleRounded, gridHalfHeight);
-      
-      // Only draw if extent is positive
-      if (yExtent > 0) {
-        const line = L.polyline([
-          [-yExtent, x],  // Start point (-y, x)
-          [yExtent, x]    // End point (+y, x)
-        ], { className: 'grid-line' });
-        gridLayer.addLayer(line);
+      // Check if this line intersects the circle
+      if (Math.abs(x) <= R) {
+        // Calculate y intersection with circle: y = abs(sqrt(R^2 - x^2)
+        const yCircle = Math.sqrt(R * R - x * x);
+        
+        // Round down to nearest parcel boundary
+        const yCircleParcels = Math.floor(yCircle / GRID_SPACING_MAPUNITS);
+        const yCircleRounded = yCircleParcels * GRID_SPACING_MAPUNITS;
+        
+        // Take the minimum of circle extent and grid extent
+        const yExtent = Math.min(yCircleRounded, gridHalfHeight);
+        
+        // Only draw if extent is positive
+        if (yExtent > 0) {
+          const line = L.polyline([
+            [-yExtent, x],  // Start point (-y, x)
+            [yExtent, x]    // End point (+y, x)
+          ], { className: 'grid-line' });
+          layer.addLayer(line);
+        }
       }
-   
-   
     }
-  }
+
+    return layer;
+  })();
 
   // Note that this will only ever remove the grid if we are zoomed out too far
   // it will not add it back if we then zoom back in. I am ok with that. 
@@ -742,13 +660,15 @@
 
   // --- Solar System Layer
   // Treat the gold disk as the sun and add planet orbits at scale
+
+  const solarSystemLayer = L.layerGroup();  
   
   // Create custom pane for solar system (above gold disk, below tiles)
   map.createPane('solarSystemPane');
   const solarPane = map.getPane('solarSystemPane');
   solarPane.style.zIndex = 175; // Between goldDisk (150) and tiles (200)
   
-  const solarSystemLayer = L.layerGroup();
+
   
   // Solar system constants
   const SUN_DIAMETER_KM = 1392000; // Sun's diameter in km
@@ -918,10 +838,6 @@
       animationRunning = false;
     }
   }
-
-
-
- 
   
   // Start/stop animation when layer is added/removed
   // Store original methods
@@ -1356,35 +1272,6 @@
       circle._path.style.fill = newColor;
     }
   }
-
-  // Logo should fade smoothly during zoom animation
-  // Fully visible at zoom -3, fully transparent at zoom -2 and below
-  function updateCwandtImageVisibility() {
-    const zoom = map.getZoom();
-
-    // Define fade range: visible at -3.5 and below, hidden at -2.5 and above
-    const fadeOutStart = -3.5;  // Start fading out
-    const fadeOutEnd = -2.5;    // Completely transparent
-    
-    let opacity;
-    
-    if (zoom <= fadeOutStart) {
-      // Fully visible when zoomed out past -3.5
-      opacity = 1;
-    } else if (zoom >= fadeOutEnd) {
-      // Fully transparent when zoomed in past -2.5
-      opacity = 0;
-    } else {
-      // Smoothly interpolate opacity during zoom animation
-      // Map zoom range [-3.5, -2.5] to opacity range [1, 0]
-      const range = fadeOutEnd - fadeOutStart;
-      const position = zoom - fadeOutStart;
-      opacity = 1 - (position / range);
-    }
-    
-    cwandtImageOverlayMarker.setOpacity(opacity);
-  }
-
   
   function zoomChanged() {
     updateHighlightVisibility();
@@ -1400,11 +1287,15 @@
 
   // ---- Special handling for the cwandt logo zoom level
 
-  // For the cwandt layer things are a bit different becuase we want the logo to fade in *after* we land on the
+  // For the cwandt layer things here are a bit different becuase we want the logo to fade in *after* we land on the
   // zoom level and fade out *before* we zoom to the next level. So we have to specifically catch the start and end events
 
-  // This is overly complicated becuase leaflet doewsn't give us access to the underlying image element so we have to 
-  // use DOM manipulation to control the opacity. 
+  // This is overly complicated becuase leaflet doewsn't give us access to the underlying image element so we had to make 
+  // a special DIV that alwazys lives above the map element. when we need it, we manually calculate where it need to go and 
+  // fade it in and out. 
+
+  // Note that I explicitly do not check for this zoom level on load becuase I only want it to show if the user zooms 
+  // to it, not if they just come via a link to it becuase that is no fun. 
 
   map.on('zoomstart', function() {
     if (map.getZoom() == CWANT_LOGO_ZOOM_LEVEL ) {
@@ -1423,29 +1314,7 @@
       // Position it below the disk
 
       // We need to put the svg below the disk. The disk is a leaflet thing, not a DOM element so we have to use the map to get the position of the disk
-
-
       
-      // // DEBUG: Draw a green X at diskCenterPixels
-      // const debugX = document.createElement('div');
-      // debugX.style.position = 'absolute';
-      // debugX.style.left = diskCenterPixels.x + 'px';
-      // debugX.style.top = diskCenterPixels.y + 'px';
-      // debugX.style.width = '20px';
-      // debugX.style.height = '20px';
-      // debugX.style.pointerEvents = 'none';
-      // debugX.style.zIndex = '10000';
-      // debugX.innerHTML = '<svg viewBox="0 0 20 20"><line x1="0" y1="0" x2="20" y2="20" stroke="lime" stroke-width="2"/><line x1="0" y1="20" x2="20" y2="0" stroke="lime" stroke-width="2"/></svg>';
-      // document.body.appendChild(debugX);
-      
-      // Calculate disk diameter in pixels at current zoom
-      // radiusMapUnits is in map coordinates, convert to pixels
-      const diskDiameterMapUnits = radiusMapUnits * 2;
-      
-      // Scale SVG to match disk width
-      // cwandtLogoControlContainer.style.width = diskDiameterPixels + 'px';
-      // cwandtLogoControlContainer.style.height = diskDiameterPixels + 'px';
-
       // Let's calculate the bounding box for our svg element 
       // // Position horizontally centered with disk, vertically 2 diameters below disk center
 
@@ -1453,23 +1322,20 @@
       const logoWidthMapunits = radiusMapUnits * 2;     // Match the width of the disk
 
       const logoCenterPixels = map.latLngToContainerPoint(logoCenterLatLong);
-      console.log("logoCenterPixels: " + logoCenterPixels);
 
       // Next lets find the width of the svg in pixels. We want it to be the same width as the disk.
+      // note that we leave the height to be computed automatically to keep the aspect ratio. 
 
       logoLeftEdgeX = map.latLngToContainerPoint([0, -radiusMapUnits]).x;
       logoRightEdgeX = map.latLngToContainerPoint([0, radiusMapUnits]).x;
-      console.log("logoLeftEdgeX: " + logoLeftEdgeX);
-      console.log("logoRightEdgeX: " + logoRightEdgeX);
 
       logoWidthPixels = logoRightEdgeX - logoLeftEdgeX;
-      console.log("logoWidthPixels: " + logoWidthPixels);
     
       cwandtLogoSvgDiv.style.left = logoCenterPixels.x + 'px';
       cwandtLogoSvgDiv.style.top = logoCenterPixels.y + 'px';
 
       cwandtLogoSvgDiv.style.width = logoWidthPixels + 'px';
-      // Center both horizontally and vertically on the point      
+      // Center both horizontally and vertically on the center point      
       cwandtLogoSvgDiv.style.transform = 'translate(-50%, -50%)'; 
       
       // Fade it in
@@ -1478,27 +1344,6 @@
 
     }
   });
-
-  // map.on('zoomend', function() {  
-
-  //   // Put a green X at latlong( 0,0)
-  //   // Convert disk center (map coordinate [0, 0]) to viewport pixels
-  //   const diskCenterPixels = map.latLngToContainerPoint([0, 0]);
-    
-  //   // DEBUG: Draw a green X at diskCenterPixels
-  //   const debugX = document.createElement('div');
-  //   debugX.style.position = 'absolute';
-  //   debugX.style.left = diskCenterPixels.x + 'px';
-  //   debugX.style.top = diskCenterPixels.y + 'px';
-  //   debugX.style.width = '20px';
-  //   debugX.style.height = '20px';
-  //   debugX.style.pointerEvents = 'none';
-  //   debugX.style.zIndex = '10000';
-  //   debugX.innerHTML = '<svg viewBox="0 0 20 20"><line x1="0" y1="0" x2="20" y2="20" stroke="lime" stroke-width="2"/><line x1="0" y1="20" x2="20" y2="0" stroke="lime" stroke-width="2"/></svg>';
-  //   debugX.style.transform = 'translate(-50%, -50%)';
-  //   map.getContainer().appendChild(debugX);
-    
-  // });
 
 
 })();
