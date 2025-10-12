@@ -126,7 +126,7 @@ https://github.com/oxipng/oxipng
 ...and run this comand from inside the docs/tiles directory...
 
 ```
-oxipng "*.png" -o max --strip all --zopfli
+bin\oxipng "docs\*.png" -r -o max --strip all --zopfli
 ```
 
 - `-o max` always optimize for maximum compression even if slow
