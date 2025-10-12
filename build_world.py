@@ -62,6 +62,48 @@ def letter_of_index(idx: int) -> str:
         idx //= 26
     return result
 
+
+def snap_to_black_or_white(img: Image.Image) -> Image.Image:
+    """Convert all colors in image to pure black (#000000) or pure white (#FFFFFF).
+    White pixels become transparent, black pixels become opaque.
+    
+    Uses brightness threshold: pixels with brightness >= 50% become white (transparent),
+    else black (opaque). This allows the gold disk to show through white areas.
+    
+    Args:
+        img: Input PIL Image (any mode)
+    
+    Returns:
+        New PIL Image with only black and white pixels
+    """
+    # Convert to RGBA to handle transparency
+    if img.mode != 'RGBA':
+        img = img.convert('RGBA')
+    
+    # Get pixel data
+    pixels = img.load()
+    width, height = img.size
+    
+    # Create new image (transparent by default)
+    result = Image.new('RGBA', (width, height), (255, 255, 255, 0))
+    result_pixels = result.load()
+    
+    # Process each pixel
+    for y in range(height):
+        for x in range(width):
+            r, g, b, a = pixels[x, y]
+            
+            # Calculate brightness (simple average)
+            brightness = (r + g + b) / 3
+            
+            # Snap to black or white based on brightness
+            if brightness >= 127.5:  # 50% threshold - bright colors
+                result_pixels[x, y] = (255, 255, 255, 0)  # White, transparent (shows gold disk)
+            else:  # Dark colors
+                result_pixels[x, y] = (0, 0, 0, 255)  # Black, opaque
+    
+    return result
+
 def parse_parcel_filename(filename: str) -> Optional[Tuple[int, int]]:
     """Parse parcel filename to extract zero based (row, col) coordinates.
     
@@ -114,7 +156,9 @@ def load_parcels(parcels_dir: Path) -> Dict[Tuple[int, int], Image.Image]:
             img = Image.open(entry)
             if img.size != (TILE_SIZE, TILE_SIZE):
                 print(f"⚠️  Warning: {entry.name} is {img.size}, expected {TILE_SIZE}x{TILE_SIZE}")
-            parcels[coords] = img.convert('RGBA')  # Ensure RGBA mode
+            img = img.convert('RGBA')  # Ensure RGBA mode
+            img = snap_to_black_or_white(img)  # Convert original parcels to pure black & white
+            parcels[coords] = img
             print(f"✅ Loaded {entry.name} -> row={coords[0]}, col={coords[1]}")
         except Exception as e:
             print(f"❌ Failed to load {entry.name}: {e}")
@@ -174,15 +218,15 @@ def create_label_tile(row: int, col: int, zoom: int = MAX_ZOOM) -> Image.Image:
                 # Use default font with larger size
                 font = ImageFont.load_default()
         
-        # Draw text centered (red, full opacity - opacity will be controlled by layer)
-        text_color = (255, 0, 0, 255)  # rgba(255, 0, 0, 1.0) -> full opacity
+        # Draw text centered (blue, full opacity - opacity will be controlled by layer)
+        text_color = (0, 0, 255, 255)  # rgba(0, 0, 255, 1.0) -> full opacity
         
         # Use anchor='mm' (middle-middle) to center both horizontally and vertically
         center_x = TILE_SIZE / 2
         center_y = TILE_SIZE / 2
         
         draw.text((center_x, center_y), label, fill=text_color, font=font, anchor='mm')
-    
+        
     return img
 
 # not working...
@@ -278,7 +322,7 @@ def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Opti
     
     # Scale down to TILE_SIZE x TILE_SIZE using high-quality resampling (anti-aliasing)
     scaled = combined.resize((TILE_SIZE, TILE_SIZE), Image.Resampling.LANCZOS)
-    
+        
     return scaled
 
 
