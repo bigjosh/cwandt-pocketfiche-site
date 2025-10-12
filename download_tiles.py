@@ -99,10 +99,6 @@ def download_tile(server_url: str, col: int, row: int, output_dir: Path) -> bool
     filename = f"tile-{row_letter}{col}.png"  # Format: tile-A5.png
     output_path = output_dir / filename
     
-    # Skip if already downloaded
-    if output_path.exists():
-        return True
-    
     # Construct URL
     url = f"{server_url}/api/tile.php?c={col}&r={row}"
     
@@ -194,7 +190,7 @@ def main():
         'skipped_radius': 0,
         'skipped_empty': 0,
         'errors': 0,
-        'already_exists': 0
+        'overwritten': 0
     }
     
     # Build the list of claimed parcels
@@ -225,22 +221,23 @@ def main():
     stats['skipped_radius'] += skipped_radius
 
     for (col, row) in to_check:
-        # Check if already exists
+        # Track if file already exists (for stats)
         row_letter = col_to_letters(row)
         filename = f"tile-{row_letter}{col}.png"
         output_path = output_dir / filename
+        
+        already_existed = output_path.exists()
 
-        if output_path.exists():
-            stats['already_exists'] += 1
-            print(f"⏭️  {filename:15} (already exists)")
-            continue
-
-        # Try to download
+        # Try to download (will overwrite if exists)
         success = download_tile(args.server, col, row, output_dir)
 
         if success:
             stats['downloaded'] += 1
-            print(f"✅ {filename:15} (col={col:2d}, row={row:2d})")
+            if already_existed:
+                stats['overwritten'] += 1
+                print(f"🔄 {filename:15} (col={col:2d}, row={row:2d}) [overwritten]")
+            else:
+                print(f"✅ {filename:15} (col={col:2d}, row={row:2d})")
         else:
             stats['skipped_empty'] += 1
             # Don't print empty tiles to reduce noise
@@ -251,7 +248,7 @@ def main():
     print("════════════════════════════════════════════════════════════")
     print(f"Total parcels:       {stats['total']}")
     print(f"Downloaded:          {stats['downloaded']} ✅")
-    print(f"Already existed:     {stats['already_exists']}")
+    print(f"Overwritten:         {stats['overwritten']}")
     print(f"Skipped (radius):    {stats['skipped_radius']}")
     print(f"Skipped (empty):     {stats['skipped_empty']}")
     print(f"Errors:              {stats['errors']}")
