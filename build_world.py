@@ -176,15 +176,11 @@ def create_label_tile(row: int, col: int, zoom: int = MAX_ZOOM) -> Image.Image:
         # Draw text centered (red, semi-transparent)
         text_color = (255, 0, 0, 77)  # rgba(255, 0, 0, 0.3) -> alpha=77/255≈0.3
         
-        # Get text bounding box to center it
-        bbox = draw.textbbox((0, 0), label, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
+        # Use anchor='mm' (middle-middle) to center both horizontally and vertically
+        center_x = TILE_SIZE / 2
+        center_y = TILE_SIZE / 2
         
-        text_x = (TILE_SIZE - text_width) / 2
-        text_y = (TILE_SIZE - text_height) / 2
-        
-        draw.text((text_x, text_y), label, fill=text_color, font=font)
+        draw.text((center_x, center_y), label, fill=text_color, font=font, anchor='mm')
     
     return img
 
