@@ -174,8 +174,8 @@ def create_label_tile(row: int, col: int, zoom: int = MAX_ZOOM) -> Image.Image:
                 # Use default font with larger size
                 font = ImageFont.load_default()
         
-        # Draw text centered (red, semi-transparent)
-        text_color = (255, 0, 0, 77)  # rgba(255, 0, 0, 0.3) -> alpha=77/255≈0.3
+        # Draw text centered (red, full opacity - opacity will be controlled by layer)
+        text_color = (255, 0, 0, 255)  # rgba(255, 0, 0, 1.0) -> full opacity
         
         # Use anchor='mm' (middle-middle) to center both horizontally and vertically
         center_x = TILE_SIZE / 2

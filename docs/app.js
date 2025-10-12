@@ -563,105 +563,10 @@
   // so we cant remove it until after the fade finished asynchronously and then one if they fade back in again... so it is always hanging around.
   map.getContainer().appendChild(cwandtLogoSvgDiv);
 
-  // --- Create grid line layer
-
-  const gridLayer = (function() {
-    const layer = L.layerGroup();
-    
-    // We need to use map units for the grid lines
-    // We want spacing between lines to be 1 tile at zoom 6 (the definition of zoom 6 is 1 tile is one parcel)
-    // a grid line between every parcel
-
-    const GRID_SPACING_MAPUNITS = mapunit_per_parceltile;
-
-    // Use the gold disk radius to constrain grid lines within the circle
-    // For a circle centered at (0,0) with radius R:
-    // - Horizontal line at y=y0 intersects at x = +/- SQRT(R^2 - y0^2)
-    // - Vertical line at x=x0 intersects at y = +/- SQRT(R^2 - x0^2)
-    // 
-    // Additionally, clip to the shorter of:
-    // 1. Circle boundary (rounded down to nearest parcel boundary)
-    // 2. Edge of 38x38 parcel grid
-    
-    const R = radiusMapUnits; // Circle radius in map units
-    
-    // Grid boundary: 38x38 grid centered at origin means ±19 parcels from center
-    const gridHalfWidth = (PARCEL_COLS / 2) * GRID_SPACING_MAPUNITS;
-    const gridHalfHeight = (PARCEL_ROWS / 2) * GRID_SPACING_MAPUNITS;
-    
-    // Horizontal lines (constant y, varying x)
-    for (let i = -1 * (PARCEL_COLS/2); i <= PARCEL_COLS/2; i += 1) {
-      const y = i * GRID_SPACING_MAPUNITS;
-      
-      // Check if this line intersects the circle
-      if (Math.abs(y) <= R) {
-        // Calculate x intersection with circle: x = ±√(R² - y²)
-        const xCircle = Math.sqrt(R * R - y * y);
-        
-        // Round down to nearest parcel boundary
-        const xCircleParcels = Math.floor(xCircle / GRID_SPACING_MAPUNITS);
-        const xCircleRounded = xCircleParcels * GRID_SPACING_MAPUNITS;
-        
-        // Take the minimum of circle extent and grid extent
-        const xExtent = Math.min(xCircleRounded, gridHalfWidth);
-        
-        // Only draw if extent is positive
-        if (xExtent > 0) {
-          const line = L.polyline([
-            [y, -xExtent],  // Start point (y, -x)
-            [y, xExtent]    // End point (y, +x)
-          ], { className: 'grid-line' });
-          layer.addLayer(line);
-        }
-      }
-    }
-
-    // Vertical lines (constant x, varying y)
-    for (let i = -1 * (PARCEL_ROWS/2); i <= PARCEL_ROWS/2; i += 1) {
-      const x = i * GRID_SPACING_MAPUNITS;
-      
-      // Check if this line intersects the circle
-      if (Math.abs(x) <= R) {
-        // Calculate y intersection with circle: y = abs(sqrt(R^2 - x^2)
-        const yCircle = Math.sqrt(R * R - x * x);
-        
-        // Round down to nearest parcel boundary
-        const yCircleParcels = Math.floor(yCircle / GRID_SPACING_MAPUNITS);
-        const yCircleRounded = yCircleParcels * GRID_SPACING_MAPUNITS;
-        
-        // Take the minimum of circle extent and grid extent
-        const yExtent = Math.min(yCircleRounded, gridHalfHeight);
-        
-        // Only draw if extent is positive
-        if (yExtent > 0) {
-          const line = L.polyline([
-            [-yExtent, x],  // Start point (-y, x)
-            [yExtent, x]    // End point (+y, x)
-          ], { className: 'grid-line' });
-          layer.addLayer(line);
-        }
-      }
-    }
-
-    return layer;
-  })();
-
-  // Note that this will only ever remove the grid if we are zoomed out too far
-  // it will not add it back if we then zoom back in. I am ok with that. 
-  
-  function updateGridVisibility() {
-    const zoom = map.getZoom();
-    const shouldBeVisible = zoom >= 0; // Show when at or above parcel minZoom
-
-    if (!shouldBeVisible) {
-      map.removeLayer(gridLayer);
-    }
-  }
-
   // --- Solar System Layer
   // Treat the gold disk as the sun and add planet orbits at scale
 
-  const solarSystemLayer = L.layerGroup();  
+  const solarSystemLayer = L.layerGroup();
   
   // Create custom pane for solar system (above gold disk, below tiles)
   map.createPane('solarSystemPane');
@@ -863,8 +768,7 @@
 
   // --- Parcel Labels Layer (Tile-based)
   // Load parcel labels from pre-generated tiles created by build_world.py
-  // Labels will be baked into tiles, so Leaflet handles all the rendering
-  // At lower zooms, tiles will show only grid lines (when text becomes too small)
+  // Labels are baked into tiles with text and grid borders
   
   // Create a custom pane for parcel labels so they render ABOVE main tiles
   map.createPane('parcelLabelsPane');
@@ -879,7 +783,7 @@
     maxZoom: MAP_MAX_ZOOM,        
     noWrap: true,
     pane: 'parcelLabelsPane',
-    opacity: 1.0
+    opacity: 0.6  // 60% opacity for subtle labels
   });
 
 
@@ -902,7 +806,6 @@
   };
   
   const overlayLayers = {
-    "Grid Lines": gridLayer,
     //"Solar System": solarSystemLayer,   // people should discover this, not see it in the menu!
     "Parcel Labels": parcelLabelsLayer,
     "Status Display": statusControlLayer,    // not really needed anymore now that this info is in the URL
@@ -1122,12 +1025,6 @@
   //   updateURLFromView();
   // }
 
-  // Check if gridlines should be shown based on URL parameter
-  const showGridlines = urlParams.get('gridlines') === 'on';
-  if (showGridlines) {
-    // Evaluate grid visibility based on zoom level
-    map.addLayer(gridLayer);
-  }
 
   // Check if debug mode should be enabled based on URL parameter
   const debugMode = urlParams.get('debug') === 'true';
@@ -1222,7 +1119,6 @@
   
   function zoomChanged() {
     updateHighlightVisibility();
-    updateGridVisibility();
     updateSolarSystemVisibility();
     updateDiskColor();
     //updateCwandtImageVisibility();  

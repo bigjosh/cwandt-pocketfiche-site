@@ -39,14 +39,6 @@ body {
 }
 
 
-/* optional grid lines */
-
-.grid-line {
-  stroke: rgba(19, 211, 61, 0.5);    /* should be 50% transparent so we can see the parcel data below */
-  stroke-width: 1px;                   /* Should always be 1px at all zoom levels */
-}
-
-
 /* Scale bar styling */
 .leaflet-control-scale {
   background: rgba(0, 180, 180, 0.85) !important;  /* Vibrant cyan/teal with high opacity */
