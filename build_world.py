@@ -34,6 +34,7 @@ MIN_ZOOM = 0     # Zoom level with single tile covering entire world
 GRID_SIZE = 38   # World is 38x38 parcels
 MAX_TILES_AT_ZOOM_6 = 2 ** MAX_ZOOM  # 64x64 tiles at zoom 6
 OFFSET = (MAX_TILES_AT_ZOOM_6 - GRID_SIZE) // 2  # Center the 38x38 world in 64x64 grid
+LABEL_MAX_DISTANCE = 19  # Maximum Euclidean distance from center for label generation
 
 # Matches filenames like: tile-H4.png, tile-AA12.png, tile-R17.png
 FILENAME_RE = re.compile(r"^tile-([A-Za-z]+)(\d+)\.png$", re.IGNORECASE)
@@ -308,12 +309,26 @@ def create_label_zoom_6_tiles(output_dir: Path):
     """Create zoom level 6 label tiles for all 38x38 parcels.
     
     Each tile contains the parcel name and grid border.
+    Only generates labels for parcels within 19 units Euclidean distance from center.
     """
     zoom_dir = output_dir / "labels" / "6"
     
+    # Calculate center of the 38x38 grid (0-based indexing)
+    center_row = (GRID_SIZE - 1) / 2  # 18.5
+    center_col = (GRID_SIZE - 1) / 2  # 18.5
+    
     count = 0
+    skipped = 0
     for row in range(GRID_SIZE):
         for col in range(GRID_SIZE):
+            # Calculate Euclidean distance from center
+            distance = math.sqrt((row - center_row) ** 2 + (col - center_col) ** 2)
+            
+            # Skip tiles that are too far from center
+            if distance > LABEL_MAX_DISTANCE:
+                skipped += 1
+                continue
+            
             # Create label tile
             label_img = create_label_tile(row, col, zoom=MAX_ZOOM)
             
@@ -328,7 +343,7 @@ def create_label_zoom_6_tiles(output_dir: Path):
             label_img.save(tile_path, 'PNG')
             count += 1
     
-    print(f"✅ Created {count} label tiles at zoom level 6")
+    print(f"✅ Created {count} label tiles at zoom level 6 (skipped {skipped} far parcels)")
 
 
 
