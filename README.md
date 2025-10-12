@@ -19,6 +19,8 @@ The coordinates start with "@" and are in lat,long map units, and @0,0 is at the
 
 If only a parcel is specified, the map will center on that parcel and zoom in to show the parcel in detail. If both a parcel and a view are specified, the parcel will be highlighted, but the view will be used to center the map and set the zoom level.
 
+You can also specify the URL param `debug=true` to see how the tiles are loaded and laid out if there are problems. 
+
 # notes on those 404s
 
 For now, if the clinet requests a tile that is not on the server I let it just return a 404 error. This happens due to not claimed parcels. 
@@ -34,10 +36,12 @@ I started off with everything configurtable in the stylesheet so other pewople w
 
 # layout
 
-`/docs` is the static site
-- `/docs/world` has all of the tiles in various zoom levels, following the openmaps convention with filenames `{z}/{x}/tile-{y}.png`.
+`docs/` is the static site
+- `docs/world/` has all of the tiles in various zoom levels, following the openmaps convention with filenames `{z}/{x}/{y}.png`.
+- `docs/world/images` has the actual parcel image tiles
+- `docs/world/labels` has tiles with the parcel names (eg S22) as block letters. 
 
-Zoom level 0 will have single 500x500 tile PNG called world/0/0/0.png that contains the full world of all the combined parcel images scaled down by 64 times to fit inside the single tile. All zoom levels bewteen follow the same power of two scaling progression. 
+Zoom level 0 will have single 500x500 tile PNG called /0/0/0.png that contains the full world of all the combined parcel images scaled down by 64 times to fit inside the single tile. All zoom levels bewteen follow the same power of two scaling progression. 
 
 Zoom level 6 is the same size as the parcel files, so there is exactly one tile file for each parcel file in parcels and the tile file will not be scaled. The level where a parcel pixel = 1 tile pixel was emprically determined since we needed zoom level 0 to completely fit all the parcels in one tile. 
 
