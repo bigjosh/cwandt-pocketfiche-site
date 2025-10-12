@@ -35,9 +35,55 @@ I started off with everything configurtable in the stylesheet so other pewople w
 # layout
 
 `/docs` is the static site
-- `/docs/world` has all of the tiles in various zoom levels, following the openmaps convention.
+- `/docs/world` has all of the tiles in various zoom levels, following the openmaps convention with filenames `{z}/{x}/tile-{y}.png`.
 
-This setup lets us serve the tiles statically from GitHub pages or locally. 
+Zoom level 0 will have single 500x500 tile PNG called world/0/0/0.png that contains the full world of all the combined parcel images scaled down by 64 times to fit inside the single tile. All zoom levels bewteen follow the same power of two scaling progression. 
+
+Zoom level 6 is the same size as the parcel files, so there is exactly one tile file for each parcel file in parcels and the tile file will not be scaled. The level where a parcel pixel = 1 tile pixel was emprically determined since we needed zoom level 0 to completely fit all the parcels in one tile. 
+
+For zoom levels 0-6, we have tiles ready to go. For zoom levels above 6, we use aliasing to strech the zoom 6 image 2x bigger for each zoom step. For zoom levels lower than 0, we just shrink the zoom 0 image down 2x for each zoom level step. 
+
+## coordinates
+
+We define our world to have a coordinate system that is 500x500 map units, so 1 map unit = 1 pixel at zoom level 0 and 64 pixels at zoom level 6. The origin latlong(0,0) is at the center of the world. Note that we use latlong (that is (y,x)) becuase that is what leaflet uses. 
+
+We did some tricks in leaflet to make lat go up as you go north. This is not normal for the `L.CRS.Simple` mapping model we are using. This is confusing when doing tile stuff since tile coors have x=0,y=0 in the upper left corner and y increases going down. So many coordinate systems!!!!
+
+## parcel names
+
+There are 38 columns and 38 rows of parcels, so the X coordinate ranges from 0 to 37 and the Y coordinate ranges from 0 to 37. 
+
+Parcel names are a letter for the X coordinate and a number for the Y coordinate. Some parcel landmarks are:
+
+- A0 is at the bottom left corner
+- AL37 is at the top right corner
+- S20,T20,T19,S19 form the center of the world (the origin is at the center of these four parcels)
+
+In CW&T  parcels, the center is at S20,T20,T19,S19. So thier grid must be 1-19 |  (20-39) so 38 rows tall total. 
+
+So, the bottom left parcel is A0 and the top right parcel is AL37.
+
+There is also a complication that not all of the parcels in the 38x38 grid are claimable. Miles said he thinks only ones in a 19mm radius are? We dont need to worry about that here becuase we only display claimed tiles anyway. 
+
+## world tiles
+
+tiles start at x=0,y=0 in the upper left corner of the world and end at x=63,y=63 in the lower right corner of the world at zoom level 6.
+
+every higher zoom level, there are 4 times as many tiles, so zoom level 7 has x=127,y=127 in the lower right corner of the world.
+
+zoom level 0 only has one tile at x=0,y=0.
+
+## figuring out where parcels go
+
+Remember that we needed everything to fit in one tile at zoom 0. We picked zoom 6 to be 1:1 with the parcel files becuase that ends up with 64x64 parcels in the single tile at zoom 0. If we had picked, say, zoom 5 for 1:1, then the 38x28 would not have fit in zoom 0 tile becuase it woudl only be 32x32 parcles. Get it?
+
+But our coordinate system is defined off the zoom 0 tile which is 500x500 map units, so means we have to remember that 500x500 in map units is 64x64 parcels even though only the middle 38x38 are given parcel names. 
+
+We also have to remember that tile file names are in the form `{z}/{x}/tile-{y}.png` and are 0 based. 
+
+So the center 0 in map units is between parcels 31 and 32 (31 is to the left of map unit 0 and 32 is to the right of map unit 0). That means parcel A1 is at x=13,y=13 for tile files. Parcel AL37 is at x=13+37=50,y=13+37=50 for tile files.
+
+
 
 # Bootstraping from old system
 
