@@ -55,6 +55,10 @@
   // maybe some day we will put something interesting down here. 
   const MAP_MAX_ZOOM = 11;
 
+  const MAP_MIN_ZOOM = -7;
+
+  const COPYRIGHT_BANNER_MAX_ZOOM_LEVEL = MAP_MIN_ZOOM;
+
   // --- calculate constants to help with layout
 
   const mapunit_per_parceltile = mapunit_per_worldtile / parcels_per_world_ratio 
@@ -204,7 +208,7 @@
   
   const map = L.map('map', {
     crs: CRS_CENTERED,
-    minZoom: -7,
+    minZoom: MAP_MIN_ZOOM,
     maxZoom: MAP_MAX_ZOOM,
     zoomControl: true,
     attributionControl: false,
@@ -757,6 +761,12 @@
       solarSystemVisible = false;
       animationRunning = false;
     }
+    
+    // Show/hide copyright banner at solar system zoom level
+    const copyrightBanner = document.getElementById('copyright-banner');
+    if (copyrightBanner) {
+      copyrightBanner.style.opacity = shouldBeVisible ? '1' : '0';
+    }
   }
   
   // Start/stop animation when layer is added/removed
@@ -1018,6 +1028,16 @@
     }
   }
 
+  function updateCopyrightBannerVisiblility() {
+    // Show/hide copyright banner at solar system zoom level
+    const shouldBeVisible = map.getZoom() <= COPYRIGHT_BANNER_MAX_ZOOM_LEVEL;
+    const copyrightBanner = document.getElementById('copyright-banner');
+    if (copyrightBanner) {
+      copyrightBanner.style.opacity = shouldBeVisible ? '1' : '0';
+    }    
+  }    
+    
+
   // Note: layers control is already created above, no need to create it here
 
   // Listen for pan/zoom completion and update URL
@@ -1138,6 +1158,7 @@
     updateHighlightVisibility();
     updateSolarSystemVisibility();
     updateDiskColor();
+    updateCopyrightBannerVisiblility();
     //updateCwandtImageVisibility();  
   }
 
@@ -1204,6 +1225,24 @@
 
     }
   });
+
+  // --- Countdown Timer for Banner
+  // Calculate days remaining until campaign end (19 days from Oct 12, 2025)
+  function updateDaysLeft() {
+    const endDate = new Date('2025-10-31T23:59:59'); // 19 days from Oct 12, 2025
+    const now = new Date();
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const daysLeft = Math.floor((endDate - now) / msPerDay);
+    
+    const element = document.getElementById('days-left');
+    if (element) {
+      element.textContent = Math.max(0, daysLeft); // Don't show negative days
+    }
+  }
+  
+  // Update immediately and then daily
+  updateDaysLeft();
+  setInterval(updateDaysLeft, 1000 * 60 * 60); // Update every hour
 
   // --- Dynamic Banner Font Sizing
   // Adjust banner font size so text fills 75% of viewport width
