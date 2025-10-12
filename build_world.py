@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Dict, Tuple, Optional
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageDraw, ImageFont
 except ImportError:
     print("Error: Pillow library required. Install with: pip install Pillow")
     sys.exit(1)
@@ -39,18 +39,30 @@ OFFSET = (MAX_TILES_AT_ZOOM_6 - GRID_SIZE) // 2  # Center the 38x38 world in 64x
 FILENAME_RE = re.compile(r"^tile-([A-Za-z]+)(\d+)\.png$", re.IGNORECASE)
 
 
-def letters_to_row(letters: str) -> int:
+def index_of_letter(letters: str) -> int:
     """Convert Excel-style letters to 0-based row index.
     A->0, B->1, ..., Z->25, AA->26, AB->27, ..., AL->37
     """
     result = 0
     for char in letters.upper():
-        result = result * 26 + (ord(char) - ord('A') + 1)
+        result = (result * 26) + (ord(char) - ord('A') + 1)
     return result - 1
 
 
+def letter_of_index(idx: int) -> str:
+    """Convert 0-based index to Excel-style letters.
+    0->A, 1->B, ..., 25->Z, 26->AA, 27->AB, ..., 37->AL
+    """
+    idx += 1  # Convert to 1-based
+    result = ''
+    while idx > 0:
+        idx -= 1
+        result = chr(ord('A') + (idx % 26)) + result
+        idx //= 26
+    return result
+
 def parse_parcel_filename(filename: str) -> Optional[Tuple[int, int]]:
-    """Parse parcel filename to extract (row, col) coordinates.
+    """Parse parcel filename to extract zero based (row, col) coordinates.
     
     Args:
         filename: e.g., "tile-H4.png" or "tile-R17.png"
@@ -67,13 +79,14 @@ def parse_parcel_filename(filename: str) -> Optional[Tuple[int, int]]:
     if not m:
         return None
     
+    # retruns 0 based row 
     row_letters = m.group(1).upper()
     try:
-        col = int(m.group(2))
+        col = int(m.group(2))-1
     except ValueError:
         return None
     
-    row = letters_to_row(row_letters)
+    row = index_of_letter(row_letters)
     return (row, col)
 
 
@@ -108,6 +121,78 @@ def load_parcels(parcels_dir: Path) -> Dict[Tuple[int, int], Image.Image]:
     return parcels
 
 
+def create_label_tile(row: int, col: int, zoom: int = MAX_ZOOM) -> Image.Image:
+    """Create a transparent tile with parcel label and grid lines.
+    
+    At zoom 6: Shows text label and grid border
+    At lower zooms: Shows only grid border (text would be too small)
+    
+    Args:
+        row: 0-based row index (0=A, 37=AL)
+        col: 0-based col index (0=1, 37=38)
+        zoom: Zoom level (affects whether text is shown)
+    
+    Returns:
+        PIL Image with transparent background, green grid lines, and red label text
+    """
+    # Create transparent image
+    img = Image.new('RGBA', (TILE_SIZE, TILE_SIZE), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    
+    # Draw grid border (green, semi-transparent)
+    grid_color = (19, 211, 61, 128)  # rgba(19, 211, 61, 0.5)
+    border_width = 1
+    draw.rectangle(
+        [(0, 0), (TILE_SIZE - 1, TILE_SIZE - 1)],
+        outline=grid_color,
+        width=border_width
+    )
+    
+    # Only draw text at zoom levels where it's legible
+    # At zoom 6, text is 250px (50% of 500px tile)
+    # At zoom 2, text would be ~16px (legible)
+    # Below zoom 2, skip text
+    MIN_TEXT_ZOOM = 2
+    
+    if zoom >= MIN_TEXT_ZOOM:
+        # Generate parcel label (e.g., "A1", "B12", "AL38")
+        label = f"{letter_of_index(row)}{col + 1}"
+        
+        # Calculate font size: 50% of tile size
+        font_size = int(TILE_SIZE * 0.5)
+        
+        # Try to load a bold font, fall back to default
+        try:
+            # Try Impact font (thick and blocky, like in CSS)
+            font = ImageFont.truetype("impact.ttf", font_size)
+        except:
+            try:
+                # Fall back to Arial Bold
+                font = ImageFont.truetype("arialbd.ttf", font_size)
+            except:
+                # Use default font with larger size
+                font = ImageFont.load_default()
+        
+        # Draw text centered (red, semi-transparent)
+        text_color = (255, 0, 0, 77)  # rgba(255, 0, 0, 0.3) -> alpha=77/255≈0.3
+        
+        # Get text bounding box to center it
+        bbox = draw.textbbox((0, 0), label, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        text_x = (TILE_SIZE - text_width) / 2
+        text_y = (TILE_SIZE - text_height) / 2
+        
+        draw.text((text_x, text_y), label, fill=text_color, font=font)
+    
+    return img
+
+# not working...
+# u0 -> a21    
+
+
+
 def create_zoom_6_tiles(parcels: Dict[Tuple[int, int], Image.Image], output_dir: Path):
     """Create zoom level 6 tiles (1:1 with parcels, no scaling).
     
@@ -118,7 +203,7 @@ def create_zoom_6_tiles(parcels: Dict[Tuple[int, int], Image.Image], output_dir:
     - AL38 (row=37, col=37) at top-right maps to tile (50, 13)
     - Y-axis is inverted: row=0 (bottom) → high y, row=37 (top) → low y
     """
-    zoom_dir = output_dir / "6"
+    zoom_dir = output_dir / "images" / "6"
     
     for (row, col), img in parcels.items():
         # Center the parcel world within the 64x64 grid
@@ -133,7 +218,7 @@ def create_zoom_6_tiles(parcels: Dict[Tuple[int, int], Image.Image], output_dir:
         img.save(tile_path, 'PNG')
         print(f"  Saved {tile_path.relative_to(output_dir)} (parcel row={row}, col={col})")
     
-    print(f"✅ Created {len(parcels)} tiles at zoom level 6")
+    print(f"✅ Created {len(parcels)} image tiles at zoom level 6")
 
 
 def get_tile_bounds(zoom: int, x: int, y: int) -> Tuple[int, int, int, int]:
@@ -153,14 +238,14 @@ def get_tile_bounds(zoom: int, x: int, y: int) -> Tuple[int, int, int, int]:
     return (col_min, row_min, col_max, row_max)
 
 
-def create_tile_from_children(zoom: int, x: int, y: int, output_dir: Path) -> Optional[Image.Image]:
+def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Optional[Image.Image]:
     """Create a tile by combining and scaling 4 child tiles from zoom+1.
     
     Returns:
         PIL Image if tile was created, None if no child tiles exist
     """
     child_zoom = zoom + 1
-    child_zoom_dir = output_dir / str(child_zoom)
+    child_zoom_dir = zoom_dir.parent / str(child_zoom)
     
     # Each tile at zoom Z corresponds to 4 tiles at zoom Z+1
     child_tiles = []
@@ -200,19 +285,18 @@ def create_tile_from_children(zoom: int, x: int, y: int, output_dir: Path) -> Op
     return scaled
 
 
-def create_zoom_level(zoom: int, output_dir: Path):
+def create_zoom_level(zoom: int, zoom_dir: Path):
     """Create all tiles for a given zoom level by scaling from zoom+1.
     
     Standard slippy map: at zoom Z, there are 2^Z tiles per side.
     We only create tiles that have content (where parcels exist).
     """
-    zoom_dir = output_dir / str(zoom)
     tiles_at_zoom = 2 ** zoom
     
     created_count = 0
     for x in range(tiles_at_zoom):
         for y in range(tiles_at_zoom):
-            tile = create_tile_from_children(zoom, x, y, output_dir)
+            tile = create_tile_from_children(zoom, x, y, zoom_dir)
             if tile is not None:
                 tile_dir = zoom_dir / str(x)
                 tile_dir.mkdir(parents=True, exist_ok=True)
@@ -222,6 +306,60 @@ def create_zoom_level(zoom: int, output_dir: Path):
                 created_count += 1
     
     print(f"✅ Created {created_count} tiles at zoom level {zoom} (max grid: {tiles_at_zoom}x{tiles_at_zoom})")
+
+
+def create_label_zoom_6_tiles(output_dir: Path):
+    """Create zoom level 6 label tiles for all 38x38 parcels.
+    
+    Each tile contains the parcel name and grid border.
+    """
+    zoom_dir = output_dir / "labels" / "6"
+    
+    count = 0
+    for row in range(GRID_SIZE):
+        for col in range(GRID_SIZE):
+            # Create label tile
+            label_img = create_label_tile(row, col, zoom=MAX_ZOOM)
+            
+            # Calculate tile position (same as parcel tiles)
+            tile_x = col + OFFSET
+            tile_y = OFFSET + (GRID_SIZE - 1) - row
+            
+            tile_dir = zoom_dir / str(tile_x)
+            tile_dir.mkdir(parents=True, exist_ok=True)
+            
+            tile_path = tile_dir / f"{tile_y}.png"
+            label_img.save(tile_path, 'PNG')
+            count += 1
+    
+    print(f"✅ Created {count} label tiles at zoom level 6")
+
+
+
+
+def build_label_pyramid(output_dir: Path):
+    """Build complete label tile pyramid from zoom 6 down to zoom 0."""
+    print(f"\n🏷️  Building label tile pyramid")
+    print(f"   Zoom levels: {MIN_ZOOM} to {MAX_ZOOM}")
+    print(f"   Tile size: {TILE_SIZE}x{TILE_SIZE} pixels")
+    print()
+    
+    # Create zoom level 6 labels (1:1 with parcels, includes text)
+    print(f"🔨 Zoom level {MAX_ZOOM} (with text labels)...")
+    create_label_zoom_6_tiles(output_dir)
+    print()
+    
+    # Create zoom levels 5 down to 0 (with scaling)
+    # Text will automatically disappear at zoom < 2 due to scaling
+    labels_dir = output_dir / "labels"
+    for zoom in range(MAX_ZOOM - 1, MIN_ZOOM - 1, -1):
+        scale_factor = 2 ** (MAX_ZOOM - zoom)
+        print(f"🔨 Zoom level {zoom} (scale {scale_factor}x)...")
+        zoom_dir = labels_dir / str(zoom)
+        create_zoom_level(zoom, zoom_dir)
+        print()
+    
+    print("✅ Label tile pyramid complete!")
 
 
 def build_pyramid(parcels: Dict[Tuple[int, int], Image.Image], output_dir: Path):
@@ -237,13 +375,15 @@ def build_pyramid(parcels: Dict[Tuple[int, int], Image.Image], output_dir: Path)
     print()
     
     # Create zoom levels 5 down to 0 (with scaling)
+    images_dir = output_dir / "images"
     for zoom in range(MAX_ZOOM - 1, MIN_ZOOM - 1, -1):
         scale_factor = 2 ** (MAX_ZOOM - zoom)
         print(f"🔨 Zoom level {zoom} (scale {scale_factor}x from parcels)...")
-        create_zoom_level(zoom, output_dir)
+        zoom_dir = images_dir / str(zoom)
+        create_zoom_level(zoom, zoom_dir)
         print()
     
-    print("✅ Tile pyramid complete!")
+    print("✅ Image tile pyramid complete!")
 
 
 def main() -> int:
@@ -292,9 +432,10 @@ def main() -> int:
         print("✅ Old files removed")
         print()
     
-    # Build pyramid
+    # Build tile pyramids (both images and labels under same root)
     output_dir.mkdir(parents=True, exist_ok=True)
     build_pyramid(parcels, output_dir)
+    build_label_pyramid(output_dir)
     
     return 0
 
