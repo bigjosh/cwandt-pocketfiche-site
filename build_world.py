@@ -197,14 +197,15 @@ def create_label_tile(row: int, col: int, zoom: int = MAX_ZOOM) -> Image.Image:
     # At zoom 6, text is 250px (50% of 500px tile)
     # At zoom 2, text would be ~16px (legible)
     # Below zoom 2, skip text
-    MIN_TEXT_ZOOM = 2
+    MIN_TEXT_ZOOM = 1
     
     if zoom >= MIN_TEXT_ZOOM:
         # Generate parcel label (e.g., "A1", "B12", "AL38")
         label = f"{letter_of_index(row)}{col + 1}"
         
-        # Calculate font size: 50% of tile size
-        font_size = int(TILE_SIZE * 0.5)
+        # Calculate font size: 25 of tile size
+        # remeber that the longest label is AL38 which is 4 letters long
+        font_size = int(TILE_SIZE * 0.25)
         
         # Try to load a bold font, fall back to default
         try:
