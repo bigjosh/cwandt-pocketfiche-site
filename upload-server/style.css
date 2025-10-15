@@ -1,0 +1,269 @@
+/*
+  Pocket Fische Upload Server Styles
+  
+  Simple, clean styling for admin and backer upload pages.
+  Matches the minimal aesthetic of the main viewer site.
+*/
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: 'Courier New', 'Consolas', monospace;
+  background: #1a1a1a;
+  color: #ffffff;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+/* Container for all content */
+.container {
+  max-width: 600px;
+  width: 100%;
+  background: #2a2a2a;
+  border: 2px solid #444;
+  border-radius: 8px;
+  padding: 30px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+/* Headings */
+h1 {
+  margin: 0 0 10px 0;
+  font-size: 24px;
+  font-weight: normal;
+  color: #00ffff;
+  text-align: center;
+}
+
+h2 {
+  margin: 20px 0 10px 0;
+  font-size: 18px;
+  font-weight: normal;
+  color: #00ffff;
+}
+
+/* Paragraphs and text */
+p {
+  margin: 10px 0;
+  line-height: 1.6;
+  color: #cccccc;
+}
+
+/* Form elements */
+label {
+  display: block;
+  margin: 15px 0 5px 0;
+  color: #ffffff;
+  font-size: 14px;
+}
+
+input[type="text"],
+textarea {
+  width: 100%;
+  padding: 10px;
+  background: #1a1a1a;
+  border: 1px solid #00ffff;
+  border-radius: 4px;
+  color: #ffffff;
+  font-family: 'Courier New', 'Consolas', monospace;
+  font-size: 14px;
+}
+
+input[type="text"]:focus,
+textarea:focus {
+  outline: none;
+  border-color: #00ff00;
+  box-shadow: 0 0 5px rgba(0, 255, 255, 0.5);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* File upload area */
+#drop-zone {
+  width: 100%;
+  height: 200px;
+  border: 2px dashed #00ffff;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: #1a1a1a;
+  transition: all 0.3s ease;
+  margin: 15px 0;
+}
+
+#drop-zone:hover,
+#drop-zone.drag-over {
+  border-color: #00ff00;
+  background: #252525;
+}
+
+#drop-zone p {
+  margin: 5px 0;
+  color: #00ffff;
+}
+
+#file-input {
+  display: none;
+}
+
+/* Image preview */
+#preview-container {
+  display: none;
+  margin: 15px 0;
+  text-align: center;
+}
+
+#preview-container.visible {
+  display: block;
+}
+
+#preview-image {
+  max-width: 100%;
+  height: auto;
+  border: 2px solid #00ffff;
+  border-radius: 4px;
+  image-rendering: pixelated;  /* Show crisp pixels */
+}
+
+/* Buttons */
+button {
+  padding: 12px 24px;
+  background: #00ffff;
+  color: #000000;
+  border: none;
+  border-radius: 4px;
+  font-family: 'Courier New', 'Consolas', monospace;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin: 5px;
+}
+
+button:hover {
+  background: #00ff00;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 255, 255, 0.3);
+}
+
+button:active {
+  transform: translateY(0);
+}
+
+button:disabled {
+  background: #555555;
+  color: #888888;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.button-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+/* Success/Error messages */
+.message {
+  padding: 15px;
+  border-radius: 4px;
+  margin: 15px 0;
+  display: none;
+}
+
+.message.visible {
+  display: block;
+}
+
+.message.success {
+  background: rgba(0, 255, 0, 0.1);
+  border: 1px solid #00ff00;
+  color: #00ff00;
+}
+
+.message.error {
+  background: rgba(255, 0, 0, 0.1);
+  border: 1px solid #ff0000;
+  color: #ff0000;
+}
+
+/* Code display */
+.code-display {
+  background: #1a1a1a;
+  border: 2px solid #00ff00;
+  border-radius: 4px;
+  padding: 20px;
+  margin: 20px 0;
+  text-align: center;
+}
+
+.code-value {
+  font-size: 24px;
+  color: #00ff00;
+  font-weight: bold;
+  letter-spacing: 4px;
+  margin: 10px 0;
+  user-select: all;
+}
+
+.url-display {
+  background: #000000;
+  border: 1px solid #00ffff;
+  border-radius: 4px;
+  padding: 10px;
+  margin: 10px 0;
+  word-break: break-all;
+  font-size: 12px;
+  color: #00ffff;
+  user-select: all;
+}
+
+/* Links */
+a {
+  color: #00ffff;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #00ff00;
+  text-decoration: underline;
+}
+
+/* Hidden elements */
+.hidden {
+  display: none !important;
+}
+
+/* Loading spinner */
+.spinner {
+  border: 3px solid #444;
+  border-top: 3px solid #00ffff;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+  margin: 20px auto;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin - Generate Upload Code</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Generate Backer Upload Code</h1>
+    <p>Create a unique access code for a backer to upload their parcel image.</p>
+    
+    <!-- Form to generate code -->
+    <form id="generate-form">
+      <label for="backer-id">Backer ID *</label>
+      <input type="text" id="backer-id" name="backer-id" required placeholder="Enter backer identifier" />
+      
+      <label for="notes">Notes</label>
+      <textarea id="notes" name="notes" placeholder="Optional notes about this backer"></textarea>
+      
+      <div class="button-row">
+        <button type="submit" id="submit-btn">Generate Code</button>
+      </div>
+    </form>
+    
+    <!-- Error message -->
+    <div id="error-message" class="message error"></div>
+    
+    <!-- Success display (hidden initially) -->
+    <div id="success-display" class="hidden">
+      <h2>Code Generated Successfully!</h2>
+      
+      <div class="code-display">
+        <p>Access Code:</p>
+        <div class="code-value" id="code-value"></div>
+        <p style="margin-top: 20px;">Backer ID:</p>
+        <div style="color: #ffffff; font-size: 16px;" id="backer-id-display"></div>
+      </div>
+      
+      <p>Send this URL to the backer:</p>
+      <div class="url-display" id="url-display"></div>
+      
+      <div class="button-row">
+        <button type="button" id="copy-btn">Copy URL to Clipboard</button>
+        <button type="button" id="reset-btn">Generate Another</button>
+      </div>
+      
+      <div id="copy-message" class="message success"></div>
+    </div>
+  </div>
+
+  <script>
+    // Get admin-id from URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const adminId = urlParams.get('admin-id');
+    
+    if (!adminId) {
+      document.body.innerHTML = '<div class="container"><h1>Error</h1><p>No admin-id provided in URL</p></div>';
+    }
+    
+    const form = document.getElementById('generate-form');
+    const submitBtn = document.getElementById('submit-btn');
+    const errorMessage = document.getElementById('error-message');
+    const successDisplay = document.getElementById('success-display');
+    const codeValue = document.getElementById('code-value');
+    const backerIdDisplay = document.getElementById('backer-id-display');
+    const urlDisplay = document.getElementById('url-display');
+    const copyBtn = document.getElementById('copy-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const copyMessage = document.getElementById('copy-message');
+    
+    // Handle form submission
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      // Clear previous messages
+      errorMessage.classList.remove('visible');
+      errorMessage.textContent = '';
+      
+      // Disable submit button
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Generating...';
+      
+      try {
+        // Get form data
+        const formData = new FormData();
+        formData.append('command', 'generate-code');
+        formData.append('admin-id', adminId);
+        formData.append('backer-id', document.getElementById('backer-id').value.trim());
+        formData.append('notes', document.getElementById('notes').value.trim());
+        
+        // Send POST request
+        const response = await fetch('cgi-bin/app.py', {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (!response.ok) {
+          // HTTP error
+          const errorText = await response.text();
+          throw new Error(errorText || `HTTP ${response.status}`);
+        }
+        
+        // Parse JSON response
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+          // Show success display
+          const backerId = document.getElementById('backer-id').value.trim();
+          codeValue.textContent = data.code;
+          backerIdDisplay.textContent = backerId;
+          
+          // Build upload URL
+          const uploadUrl = `${window.location.origin}${window.location.pathname.replace('admin.html', 'upload.html')}?code=${data.code}`;
+          urlDisplay.textContent = uploadUrl;
+          
+          // Hide form, show success
+          form.classList.add('hidden');
+          successDisplay.classList.remove('hidden');
+          
+        } else {
+          // Server returned error status
+          throw new Error(data.message || 'Failed to generate code');
+        }
+        
+      } catch (error) {
+        // Show error message
+        errorMessage.textContent = `Error: ${error.message}`;
+        errorMessage.classList.add('visible');
+        
+      } finally {
+        // Re-enable submit button
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Generate Code';
+      }
+    });
+    
+    // Copy URL to clipboard
+    copyBtn.addEventListener('click', async () => {
+      try {
+        const url = urlDisplay.textContent;
+        await navigator.clipboard.writeText(url);
+        
+        copyMessage.textContent = 'URL copied to clipboard!';
+        copyMessage.classList.add('visible');
+        
+        // Hide message after 3 seconds
+        setTimeout(() => {
+          copyMessage.classList.remove('visible');
+        }, 3000);
+        
+      } catch (error) {
+        alert('Failed to copy to clipboard. Please copy manually.');
+      }
+    });
+    
+    // Reset form
+    resetBtn.addEventListener('click', () => {
+      // Clear form
+      form.reset();
+      
+      // Hide success, show form
+      successDisplay.classList.add('hidden');
+      form.classList.remove('hidden');
+      
+      // Clear messages
+      errorMessage.classList.remove('visible');
+      copyMessage.classList.remove('visible');
+    });
+  </script>
+</body>
+</html>

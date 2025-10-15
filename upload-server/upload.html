@@ -1,0 +1,332 @@
+<!doctype html>
+
+<!--
+
+  If you are a hacker, please do not hack on this. This site is only up for a couple of weeks so it was not worth the effort for me to harden it. 
+  None of the data here is canonical. If you figure out a way to upload more tiles or delete someoneelses tiles, you are just makimg work
+  for me to fix it. There is nothing to gain except wasting your time and my time. No glory.
+
+  Thanks,
+  josh
+  
+-->
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Upload Your Parcel Image</title>
+  <link rel="stylesheet" href="style.css" />
+  <meta name="referrerpolicy" content="no-referrer" />
+</head>
+<body>
+  <div class="container">
+    <h1>Upload Your Parcel Image</h1>
+    <p>Upload your 500x500 black-and-white image and choose where to place it on the microfiche.</p>
+    
+    <!-- Upload form -->
+    <div id="upload-form">
+      <h2>Step 1: Select Your Image</h2>
+      <p style="font-size: 12px; color: #888;">Image will be converted to 500x500 1-bit black-and-white PNG</p>
+      
+      <!-- Drop zone -->
+      <div id="drop-zone">
+        <p style="font-size: 20px;">📁</p>
+        <p>Drag and drop an image here</p>
+        <p>or click to select a file</p>
+      </div>
+      <input type="file" id="file-input" accept="image/*" />
+      
+      <!-- Preview -->
+      <div id="preview-container">
+        <h2>Image Preview</h2>
+        <canvas id="preview-image"></canvas>
+        <p style="text-align: center; margin-top: 15px; font-size: 12px; color: #888;">
+          Don't like the preview? Try seletcing a different image!
+        </p>
+      </div>
+      
+      <!-- Location selection -->
+      <div id="location-section" class="hidden">
+        <h2>Step 2: Choose Parcel Location</h2>
+        <p>Enter a location from A1 to AL38</p>
+        
+        <label for="parcel-location">Parcel Location</label>
+        <input type="text" id="parcel-location" name="parcel-location" 
+               required placeholder="e.g., A1, B12, AL38" 
+               pattern="[A-Z]{1,2}\d{1,2}" 
+               style="text-transform: uppercase;" />
+        
+        <div class="button-row">
+          <button type="button" id="upload-btn">Upload Image</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Messages -->
+    <div id="error-message" class="message error"></div>
+    <div id="success-message" class="message success"></div>
+    
+    <!-- Success display -->
+    <div id="success-display" class="hidden">
+      <h2>Upload Successful! 🎉</h2>
+      <p>Your parcel image has been uploaded to location: <strong id="uploaded-location"></strong></p>
+      <p>View it on the <a href="../docs/index.html" rel="noopener">Pocket Fiche viewer</a></p>
+    </div>
+  </div>
+
+  <script>
+    // Get code from URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    
+    if (!code) {
+      document.body.innerHTML = '<div class="container"><h1>Error</h1><p>No access code provided in URL</p></div>';
+    }
+    
+    // Elements
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const previewContainer = document.getElementById('preview-container');
+    const previewCanvas = document.getElementById('preview-image');
+    const locationSection = document.getElementById('location-section');
+    const parcelLocationInput = document.getElementById('parcel-location');
+    const uploadBtn = document.getElementById('upload-btn');
+    const errorMessage = document.getElementById('error-message');
+    const successMessage = document.getElementById('success-message');
+    const uploadForm = document.getElementById('upload-form');
+    const successDisplay = document.getElementById('success-display');
+    const uploadedLocation = document.getElementById('uploaded-location');
+    
+    let processedImageBlob = null;  // Store the processed image
+    
+    // Drop zone click opens file dialog
+    dropZone.addEventListener('click', () => {
+      fileInput.click();
+    });
+    
+    // Prevent default drag behaviors
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+    });
+    
+    // Highlight drop zone when file is dragged over
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropZone.addEventListener(eventName, () => {
+        dropZone.classList.add('drag-over');
+      });
+    });
+    
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, () => {
+        dropZone.classList.remove('drag-over');
+      });
+    });
+    
+    // Handle dropped files
+    dropZone.addEventListener('drop', (e) => {
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        handleFile(files[0]);
+      }
+    });
+    
+    // Handle selected files
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+      }
+    });
+    
+    // Handle file selection
+    function handleFile(file) {
+      // Clear previous messages
+      errorMessage.classList.remove('visible');
+      successMessage.classList.remove('visible');
+      
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        showError('Please select an image file');
+        return;
+      }
+      
+      // Read and process the image
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        processImage(e.target.result);
+      };
+      reader.onerror = () => {
+        showError('Failed to read file');
+      };
+      reader.readAsDataURL(file);
+    }
+    
+    // Process image to 500x500 1-bit black-and-white PNG
+    function processImage(imageDataUrl) {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          // Create canvas for processing
+          const canvas = document.createElement('canvas');
+          canvas.width = 500;
+          canvas.height = 500;
+          const ctx = canvas.getContext('2d');
+          
+          // Draw image scaled to 500x500
+          ctx.drawImage(img, 0, 0, 500, 500);
+          
+          // Get pixel data
+          const imageData = ctx.getImageData(0, 0, 500, 500);
+          const pixels = imageData.data;
+          
+          // Convert to black and white (1-bit)
+          // Use simple threshold: brightness >= 50% = white, else black
+          for (let i = 0; i < pixels.length; i += 4) {
+            const r = pixels[i];
+            const g = pixels[i + 1];
+            const b = pixels[i + 2];
+            
+            // Calculate brightness
+            const brightness = (r + g + b) / 3;
+            
+            // Threshold to black or white
+            const value = brightness >= 127.5 ? 255 : 0;
+            pixels[i] = value;      // R
+            pixels[i + 1] = value;  // G
+            pixels[i + 2] = value;  // B
+            // Alpha stays the same
+          }
+          
+          // Put processed data back
+          ctx.putImageData(imageData, 0, 0);
+          
+          // Convert to blob
+          canvas.toBlob((blob) => {
+            if (!blob) {
+              showError('Failed to process image');
+              return;
+            }
+            
+            processedImageBlob = blob;
+            
+            // Show preview
+            previewCanvas.width = 500;
+            previewCanvas.height = 500;
+            const previewCtx = previewCanvas.getContext('2d');
+            previewCtx.putImageData(imageData, 0, 0);
+            
+            // Show preview and location section
+            previewContainer.classList.add('visible');
+            locationSection.classList.remove('hidden');
+            
+          }, 'image/png');
+          
+        } catch (error) {
+          showError(`Failed to process image: ${error.message}`);
+        }
+      };
+      img.onerror = () => {
+        showError('Failed to load image');
+      };
+      img.src = imageDataUrl;
+    }
+    
+    // Upload button
+    uploadBtn.addEventListener('click', async () => {
+      // Clear previous messages
+      errorMessage.classList.remove('visible');
+      successMessage.classList.remove('visible');
+      
+      // Validate inputs
+      if (!processedImageBlob) {
+        showError('Please select an image first');
+        return;
+      }
+      
+      const location = parcelLocationInput.value.trim().toUpperCase();
+      if (!location) {
+        showError('Please enter a parcel location');
+        return;
+      }
+      
+      // Validate location format
+      if (!/^[A-Z]{1,2}\d{1,2}$/.test(location)) {
+        showError('Invalid location format. Use uppercase letters and numbers (e.g., A1, B12, AL38)');
+        return;
+      }
+      
+      // Disable upload button
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = 'Uploading...';
+      
+      try {
+        // Create form data
+        const formData = new FormData();
+        formData.append('command', 'upload');
+        formData.append('code', code);
+        formData.append('parcel-location', location);
+        formData.append('image', processedImageBlob, 'parcel.png');
+        
+        // Send POST request
+        const response = await fetch('cgi-bin/app.py', {
+          method: 'POST',
+          body: formData
+        });
+        
+        // Always parse JSON response (server always returns JSON)
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+          // Show success
+          uploadedLocation.textContent = data.location;
+          uploadForm.classList.add('hidden');
+          successDisplay.classList.remove('hidden');
+          
+        } else if (data.status === 'used') {
+          // Code already used
+          showError(`This access code has already been used to upload to location ${data.location}`);
+          
+        } else if (data.status === 'taken') {
+          // Location already taken
+          showError(`Location ${data.location} is already taken. Please choose a different location.`);
+          
+        } else if (data.status === 'error') {
+          // General error (auth, validation, etc.)
+          showError(data.message || 'Upload failed');
+          
+        } else {
+          // Unknown status
+          showError('Upload failed with unknown status');
+        }
+        
+      } catch (error) {
+        showError(`Error: ${error.message}`);
+        
+      } finally {
+        // Re-enable upload button
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = 'Upload Image';
+      }
+    });
+    
+    // Show error message
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorMessage.classList.add('visible');
+      
+      // Auto-hide after 10 seconds
+      setTimeout(() => {
+        errorMessage.classList.remove('visible');
+      }, 10000);
+    }
+    
+    // Force uppercase in location input
+    parcelLocationInput.addEventListener('input', (e) => {
+      e.target.value = e.target.value.toUpperCase();
+    });
+  </script>
+</body>
+</html>

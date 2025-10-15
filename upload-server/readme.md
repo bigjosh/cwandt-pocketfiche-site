@@ -14,7 +14,7 @@ Also in the name of simplicity, I picked the built-in python webserver's cgi-bin
 
 1. Clone this repo
 2. Create a data folder outside of the app folder. MUST BE OUTSIDE OF THE PATH OF THIS REPO
-3. Set an environment variable called `DATA_DIR` to the path of the data folder. In windows, you can do this by running `setx DATA_DIR=C:\path\to\data` in the command prompt.
+3. Set an environment variable called `PF_DATA_DIR` to the path of the data folder. In windows, you can do this by running `setx PF_DATA_DIR=C:\path\to\data` in the command prompt.
 4. From the root of this repo, run...
     ```
      python -m http.server --cgi
@@ -44,20 +44,24 @@ Make one file for each admin user in the data/admins folder. The file should be 
 App Files-
 
 ```
+index.html
 style.css
 admin.html
 upload.html
-cgi-bin/app.py    
+cgi-bin/app.py
+cgi-bin/index.html
 ```
 
 The `admin.html` and `upload.html` are static webpages that are served by the python webserver.  They include the `style.css`. We give html elements IDs so we can style them in the CSS.
 
-There is one app processor called `cgi-bin/app.py` that is a cgi-script. It is called by static webpages.
+There is one app processor called `cgi-bin/app.py` that is a cgi-script. It is called by the static webpages and handled as a CGI script by the server becuase we specified "-cgi" on the command line. 
 
-The app page always gets at least a `command` parameter. Some commands also expect additional parameters in the POST. 
+Rquests to the app processor always have at least a `command` parameter. Some commands also expect additional parameters, and some are POST requests.
 
 All admin commands require an `admin-id` parameter.
 All backer commands require an `code` parameter.
+
+The `index.html` are only there to block directory listing. 
 
 ### the static webpages
 
@@ -69,6 +73,8 @@ A simple form with fields for "backer-id" and "notes". It submits a POST with th
 
 If the POST is successful, it shows a page with the specified backer-id and the URL to the `upload.html` page with the `code` parameter from the POST. It has a button to copy the URL to the clipboard.
 
+I know that it is bad form to have a secret in the URL but I want the admins to be able to bookmark it. 
+
 #### `upload.html`
 
 This is where all of the action with backers happens.
@@ -77,11 +83,11 @@ We show an upload form which collects the image they want to upload, a field for
 
 They can drag and drop an image or select it from their file system. 
 
-Once they do that, the page has JS that processes the image into a 500x500x1 PNG and shows it to user as a preview. They can try again if they don't like it. 
+Once they do that, the page has JS that processes the image into a 500x500 1-bit black-and-white only PNG and shows it to user as a preview. They can try again if they don't like it. 
 
 Next is the parcel-location field which can take a location from "A1" to "AL38".
 
-Finally there is an "Upload image " submit button that makes a POST to the app processor with the `command` parameter set to `upload`, the `parcel-location` parameter from the form, and the `code` parameter from the URL, and the image in the POST data. 
+Finally there is an "Upload image " submit button that makes a POST to the app processor with the `command` parameter set to `upload`, the `parcel-location` parameter from the form, and the `code` parameter from the URL, and the image in the POST data. Parcel-location is upper-case only. 
 
 If the POST is successful, the page says "You have successfully uploaded your image! Here is the link to your image...." and displays a link based on the returned parcel-location.  
 
@@ -103,7 +109,7 @@ If the request was successful, then we return a JSON object with a `status` fiel
 
 #### data handling
 
-All data is stored in the data directory, which the app locates using the `DATA_DIR` environment variable. It should be *outside* the app directory tree for securuty since it has secrets in it. 
+All data is stored in the data directory, which the app locates using the `PF_DATA_DIR` environment variable. It should be *outside* the app directory tree for securuty since it has secrets in it. 
 
 Any time we "atomic-add" a file to the data directory, we first create the file as a temp file in the target directory and then "move" it to the final name. If the move fails, we delete the temp file and handle the error. This is to prevent a race condition where the file already exists or another process might try to create the same file or access the file before it is fully written. 
 
@@ -143,8 +149,8 @@ If the "atomic-add" fails, we return json `{'status': 'error', 'message': 'code 
 This command handles the upload of a parcel image. It takes a POST with the `code` and `parcel-location` parameters and the image in the POST data. 
 
 1. check the code exists in the `access/` dir and if not returns a "401: not autorized" error. 
-2. check if the parcel location is valid. If it is not, we return a "400: Invalid location" error. 
-3. check if the image is a 500x500x1 PNG. If not, we return a "406: Invalid image" error.
+2. check if the parcel location is valid format (all caps, A1 to AL38). If it is not, we return a "400: Invalid location" error. 
+3. check if the image is a 500x500 1-bit black-and-white only PNG. If not, we return a "406: Invalid image" error.
 4. atomic-add a new file `locations/{code}.txt`. The file new contents are the requested parcel-location. If this fails, we return the error as JSON `{'status': 'used', 'location': existing location}` where existing location is the location that was in the existing file that blocked us from doing the atomic-add.
 5. "atomic-add" the uploaded image file to the `parcels/` dir as {parcel-location}.png`. If this fails, we return JSON `{ status: 'taken', location: existing location}` and delete the `locations/{code}.txt` file we created in the step above.
 6. If we get here, the image upload was successful. We return the parcel-location as JSON `{ status: 'success', location: parcel-location}`.
