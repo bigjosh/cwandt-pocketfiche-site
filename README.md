@@ -59,13 +59,13 @@ There are 38 columns and 38 rows of parcels, so the X coordinate ranges from 0 t
 
 Parcel names are a letter for the X coordinate and a number for the Y coordinate. Some parcel landmarks are:
 
-- A0 is at the bottom left corner
-- AL37 is at the top right corner
+- A1 is at the bottom left corner
+- AL38 is at the top right corner
 - S20,T20,T19,S19 form the center of the world (the origin is at the center of these four parcels)
 
-In CW&T  parcels, the center is at S20,T20,T19,S19. So thier grid must be 1-19 |  (20-39) so 38 rows tall total. 
+In CW&T  parcels, the center is at S20,T20,T19,S19. So thier grid must be 1-19 |  (20-39) so 38 rows tall total. Thier current grid labels are just wrong and don't even match the files names so ignore them.
 
-So, the bottom left parcel is A0 and the top right parcel is AL37.
+So, the bottom left parcel is A1 and the top right parcel is AL38.
 
 There is also a complication that not all of the parcels in the 38x38 grid are claimable. Miles said he thinks only ones in a 19mm radius are? We dont need to worry about that here becuase we only display claimed tiles anyway. 
 

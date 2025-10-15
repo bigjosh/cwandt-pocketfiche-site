@@ -138,7 +138,7 @@ body {
 /* Copyright banner at bottom */
 #copyright-banner {
   position: fixed;
-  bottom: 10px;
+  bottom: 50px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1000;
