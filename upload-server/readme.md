@@ -142,7 +142,26 @@ If the "atomic-add" succeeds, we return json `{'status': 'success', 'code': code
 
 If the "atomic-add" fails, we return json `{'status': 'error', 'message': 'code already exists'}`.
 
+
+##### command=`get-codes`
+
+This command returns a list of all the access codes in the data directory. It takes a GET with the `admin-id` parameter. 
+
+If the admin-id is not authorized, we return a "401: not autorized" error. 
+
+If the admin-id is authorized, we return a JSON array of all the access codes in the data directory. 
+
 #### backer commands
+
+##### command=`get-parcel`
+
+This command returns the PNG file that has already been uploiaded for {code}. It takes a GET with the `code` parameter. 
+
+If the code does not exist, we return JSON "{ status: "error" , "message": "code not found"}".
+
+If the code does exist but has not yet uploaded an image, we return JSON "{ status: "free" , "message": "no image uploaded"}".
+
+If the code exists and an image has already been uploaded, we return JSON "{ status: "success" , "parcel-location": "parcel-location"}".
 
 ##### command=`upload`.
 
@@ -154,3 +173,13 @@ This command handles the upload of a parcel image. It takes a POST with the `cod
 4. atomic-add a new file `locations/{code}.txt`. The file new contents are the requested parcel-location. If this fails, we return the error as JSON `{'status': 'used', 'location': existing location}` where existing location is the location that was in the existing file that blocked us from doing the atomic-add.
 5. "atomic-add" the uploaded image file to the `parcels/` dir as {parcel-location}.png`. If this fails, we return JSON `{ status: 'taken', location: existing location}` and delete the `locations/{code}.txt` file we created in the step above.
 6. If we get here, the image upload was successful. We return the parcel-location as JSON `{ status: 'success', location: parcel-location}`.
+
+#### public commands
+
+These commands do not require any authorization. 
+
+##### command=`get-parcels`
+
+This command returns a list of all the parcel locations in the data directory. No params.
+
+We return a JSON array of all the used parcel locations in the data directory. 

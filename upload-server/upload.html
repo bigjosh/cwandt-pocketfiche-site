@@ -21,13 +21,21 @@
 </head>
 <body>
   <div class="container">
-    <h1>Upload Your Parcel Image</h1>
-    <p>Upload your 500x500 black-and-white image and choose where to place it on the microfiche.</p>
+    <!-- Header (hidden after successful upload) -->
+    <div id="upload-header">
+      <h1>Upload Your Parcel Image</h1>
+    </div>
+    
+    <!-- Loading state -->
+    <div id="loading-state">
+      <div class="spinner"></div>
+      <p style="text-align: center; margin-top: 20px;">Checking access code...</p>
+    </div>
     
     <!-- Upload form -->
-    <div id="upload-form">
+    <div id="upload-form" class="hidden">
       <h2>Step 1: Select Your Image</h2>
-      <p style="font-size: 12px; color: #888;">Image will be converted to 500x500 1-bit black-and-white PNG</p>
+      <p style="font-size: 12px; color: #888;">Best to upload a 500x500 1-bit black-and-white image, but if you upload something else, we will try our best to convert it for you.</p>
       
       <!-- Drop zone -->
       <div id="drop-zone">
@@ -50,6 +58,7 @@
       <div id="location-section" class="hidden">
         <h2>Step 2: Choose Parcel Location</h2>
         <p>Enter a location from A1 to AL38</p>
+        <p>See the parcel map <a href="/?names=true" target="_blank">here</a></p>
         
         <label for="parcel-location">Parcel Location</label>
         <input type="text" id="parcel-location" name="parcel-location" 
@@ -63,15 +72,20 @@
       </div>
     </div>
     
-    <!-- Messages -->
-    <div id="error-message" class="message error"></div>
-    <div id="success-message" class="message success"></div>
+    <!-- Error Modal -->
+    <div id="error-modal" class="modal hidden">
+      <div class="modal-content">
+        <h3>Error</h3>
+        <p id="error-modal-message"></p>
+        <button id="error-modal-close">OK</button>
+      </div>
+    </div>
     
     <!-- Success display -->
     <div id="success-display" class="hidden">
-      <h2>Upload Successful! 🎉</h2>
+      <h2>Upload Successful!</h2>
       <p>Your parcel image has been uploaded to location: <strong id="uploaded-location"></strong></p>
-      <p>View it on the <a href="../docs/index.html" rel="noopener">Pocket Fiche viewer</a></p>
+      <p>Our parcel integration team is on it. You should see it in the <a id="viewer-link" href="#" rel="noopener" target="_blank">viewer</a> within a few minutes.</p>
     </div>
   </div>
 
@@ -85,6 +99,8 @@
     }
     
     // Elements
+    const uploadHeader = document.getElementById('upload-header');
+    const loadingState = document.getElementById('loading-state');
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('file-input');
     const previewContainer = document.getElementById('preview-container');
@@ -92,13 +108,58 @@
     const locationSection = document.getElementById('location-section');
     const parcelLocationInput = document.getElementById('parcel-location');
     const uploadBtn = document.getElementById('upload-btn');
-    const errorMessage = document.getElementById('error-message');
-    const successMessage = document.getElementById('success-message');
     const uploadForm = document.getElementById('upload-form');
     const successDisplay = document.getElementById('success-display');
     const uploadedLocation = document.getElementById('uploaded-location');
+    const viewerLink = document.getElementById('viewer-link');
+    const errorModal = document.getElementById('error-modal');
+    const errorModalMessage = document.getElementById('error-modal-message');
+    const errorModalClose = document.getElementById('error-modal-close');
     
     let processedImageBlob = null;  // Store the processed image
+    
+    // Check upload status on page load (blocks interaction until complete)
+    async function checkUploadStatus() {
+      try {
+        const response = await fetch(`cgi-bin/app.py?command=get-parcel&code=${encodeURIComponent(code)}`);
+        
+        // Always expect JSON response (server always returns JSON now)
+        const data = await response.json();
+        
+        // Hide loading state
+        loadingState.classList.add('hidden');
+        
+        if (data.status === 'error') {
+          // Code not found or other error - not authorized
+          document.body.innerHTML = '<div class="container"><h1>Not Authorized</h1><p>Invalid or expired access code.</p><p>Please <a href="https://help.kickstarter.com/hc/en-us/articles/360011239834-How-to-message-a-project-creator">message us on Kickstarter</a> if you think this is in error!</p></div>';
+          return;
+        } else if (data.status === 'success') {
+          // Already uploaded - show success message with image
+          uploadHeader.classList.add('hidden');
+          const parcelLocation = data['parcel-location'];
+          uploadedLocation.textContent = parcelLocation;
+          
+          // Set viewer link
+          const viewerLink = document.getElementById('viewer-link');
+          viewerLink.href = `/?parcel=${encodeURIComponent(parcelLocation)}`;
+          
+          successDisplay.classList.remove('hidden');
+          return;
+        } else if (data.status === 'free') {
+          // Valid code, no upload yet - show upload form
+          uploadForm.classList.remove('hidden');
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to check upload status:', error);
+        // Network or parsing error - hide loading and show form anyway
+        loadingState.classList.add('hidden');
+        uploadForm.classList.remove('hidden');
+      }
+    }
+    
+    // Check status when page loads
+    checkUploadStatus();
     
     // Drop zone click opens file dialog
     dropZone.addEventListener('click', () => {
@@ -143,10 +204,6 @@
     
     // Handle file selection
     function handleFile(file) {
-      // Clear previous messages
-      errorMessage.classList.remove('visible');
-      successMessage.classList.remove('visible');
-      
       // Validate file type
       if (!file.type.startsWith('image/')) {
         showError('Please select an image file');
@@ -236,10 +293,6 @@
     
     // Upload button
     uploadBtn.addEventListener('click', async () => {
-      // Clear previous messages
-      errorMessage.classList.remove('visible');
-      successMessage.classList.remove('visible');
-      
       // Validate inputs
       if (!processedImageBlob) {
         showError('Please select an image first');
@@ -280,8 +333,15 @@
         const data = await response.json();
         
         if (data.status === 'success') {
-          // Show success
-          uploadedLocation.textContent = data.location;
+          // Show success with uploaded image
+          uploadHeader.classList.add('hidden');
+          const parcelLocation = data.location;
+          uploadedLocation.textContent = parcelLocation;
+          
+          // Set viewer link
+          const viewerLink = document.getElementById('viewer-link');
+          viewerLink.href = `/?parcel=${encodeURIComponent(parcelLocation)}`;
+          
           uploadForm.classList.add('hidden');
           successDisplay.classList.remove('hidden');
           
@@ -312,16 +372,23 @@
       }
     });
     
-    // Show error message
+    // Show error modal
     function showError(message) {
-      errorMessage.textContent = message;
-      errorMessage.classList.add('visible');
-      
-      // Auto-hide after 10 seconds
-      setTimeout(() => {
-        errorMessage.classList.remove('visible');
-      }, 10000);
+      errorModalMessage.textContent = message;
+      errorModal.classList.remove('hidden');
     }
+    
+    // Close error modal
+    errorModalClose.addEventListener('click', () => {
+      errorModal.classList.add('hidden');
+    });
+    
+    // Close modal on background click
+    errorModal.addEventListener('click', (e) => {
+      if (e.target === errorModal) {
+        errorModal.classList.add('hidden');
+      }
+    });
     
     // Force uppercase in location input
     parcelLocationInput.addEventListener('input', (e) => {
