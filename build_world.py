@@ -37,7 +37,7 @@ OFFSET = (MAX_TILES_AT_ZOOM_6 - GRID_SIZE) // 2  # Center the 38x38 world in 64x
 LABEL_MAX_DISTANCE = 19  # Maximum Euclidean distance from center for label generation
 
 # Matches filenames like: tile-H4.png, tile-AA12.png, tile-R17.png
-FILENAME_RE = re.compile(r"^tile-([A-Za-z]+)(\d+)\.png$", re.IGNORECASE)
+FILENAME_RE = re.compile(r"^([A-Za-z]+)(\d+)\.png$", re.IGNORECASE)
 
 
 def index_of_letter(letters: str) -> int:
@@ -108,7 +108,7 @@ def parse_parcel_filename(filename: str) -> Optional[Tuple[int, int]]:
     """Parse parcel filename to extract zero based (row, col) coordinates.
     
     Args:
-        filename: e.g., "tile-H4.png" or "tile-R17.png"
+        filename: e.g., "H4.png" or "R17.png"
         Format is "tile-{ROW_LETTERS}{COL_NUMBER}.png"
         where ROW_LETTERS (A-AL) and COL_NUMBER (0-based) identify the parcel.
         Note: A1 is at top-left, AL38 is at bottom-right (per README).
