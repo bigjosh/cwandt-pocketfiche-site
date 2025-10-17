@@ -90,12 +90,12 @@
   </div>
 
   <script>
-    // Get code from URL parameter
-    const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get('code');
+    // Get code from URL hash fragment
+    const hash = window.location.hash.slice(1); // Remove the '#'
+    const code = hash || null;
     
     if (!code) {
-      document.body.innerHTML = '<div class="container"><h1>Error</h1><p>No access code provided in URL</p></div>';
+      document.body.innerHTML = '<div class="container"><h1>Error</h1><p>No access code provided in URL.</p></div>';
     }
     
     // Elements

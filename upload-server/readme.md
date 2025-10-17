@@ -26,11 +26,13 @@ Also in the name of simplicity, I picked the built-in python webserver's cgi-bin
 
 Make one file for each admin user in the data/admins folder. The file should be named {admin-id}.txt and should contain the name of the person on the first line and the notes on the second line. Pick a hard to guess names for these files, like 8 random uppercase letters. Do not tell it to anyone - this is basically that admin's password.
 
+Admins access the admin page using: `admin.html#{admin-id}`
+
 
 # High level flow
 
-1. An admin visits the admin page and enters a backer-id and we generate a unique access code for that backer. 
-2. Admin sends a URL to backer that includes the access code.
+1. An admin visits the admin page (`admin.html#{admin-id}`) and enters a backer-id and we generate a unique access code for that backer. 
+2. Admin sends a URL to backer that includes the access code in the hash fragment (`upload.html#{code}`).
 3. Backer visits the URL and is asked to upload thier image. They also specify the parcel location they want to place the image. We remind them that the image must be 500x500x1 PNG.
 4. Backer uploads image with a POST. The POST also has the access code and parcel location.
 5. Server checks the image and location to make sure they are valid. If not, it returns an error message.
@@ -58,24 +60,34 @@ There is one app processor called `cgi-bin/app.py` that is a cgi-script. It is c
 
 Rquests to the app processor always have at least a `command` parameter. Some commands also expect additional parameters, and some are POST requests.
 
-All admin commands require an `admin-id` parameter.
-All backer commands require an `code` parameter.
+All admin commands require an `admin-id` parameter (passed as POST data or query string).
+All backer commands require a `code` parameter (passed as POST data or query string).
+
+Note: For security, the admin-id and code are passed in the URL hash fragment (#) on the client side, which prevents them from being sent in the Referer header or logged in server access logs. The JavaScript extracts these from the hash and sends them to the server only when needed.
 
 The `index.html` are only there to block directory listing. 
 
 ### the static webpages
 
-All links in the static webpages should have "no-referrer" set in the referrer policy to avoid leaking the access code in the URL.
+Authentication credentials (admin-id and code) are passed via URL hash fragments (e.g., `admin.html#ABCDEFGH`, `upload.html#5H54YXRI`) rather than query parameters. Hash fragments are never sent to the server, providing better security:
+- Not included in Referer headers
+- Not logged in server access logs
+- Not sent to analytics platforms
+- Shorter, cleaner URLs
 
 #### `admin.html`
 
-A simple form with fields for "backer-id" and "notes". It submits a POST with those fields to the app processor with the `command` parameter set to `generate-code` and the `admin-id` parameter from the URL. The POST also has the `backer-id` and `notes` parameters. 
+URL format: `admin.html#{admin-id}`
 
-If the POST is successful, it shows a page with the specified backer-id and the URL to the `upload.html` page with the `code` parameter from the POST. It has a button to copy the URL to the clipboard.
+A simple form with fields for "backer-id" and "notes". JavaScript extracts the admin-id from the URL hash fragment and submits a POST with those fields to the app processor with the `command` parameter set to `generate-code` and the `admin-id` parameter. The POST also has the `backer-id` and `notes` parameters. 
 
-I know that it is bad form to have a secret in the URL but I want the admins to be able to bookmark it. 
+If the POST is successful, it shows a page with the specified backer-id and the URL to the `upload.html` page using the format `upload.html#{code}`. It has a button to copy the URL to the clipboard.
+
+Using hash fragments keeps the admin-id secret - it's never sent to the server, only extracted by JavaScript when needed. 
 
 #### `upload.html`
+
+URL format: `upload.html#{code}`
 
 This is where all of the action with backers happens.
 
@@ -87,7 +99,9 @@ Once they do that, the page has JS that processes the image into a 500x500 1-bit
 
 Next is the parcel-location field which can take a location from "A1" to "AL38".
 
-Finally there is an "Upload image " submit button that makes a POST to the app processor with the `command` parameter set to `upload`, the `parcel-location` parameter from the form, and the `code` parameter from the URL, and the image in the POST data. Parcel-location is upper-case only. 
+Finally there is an "Upload image " submit button that makes a POST to the app processor with the `command` parameter set to `upload`, the `parcel-location` parameter from the form, and the `code` parameter (extracted from the hash fragment by JavaScript), and the image in the POST data. Parcel-location is upper-case only.
+
+The access code stays in the hash fragment and is only sent to the server when making the upload request. 
 
 If the POST is successful, the page says "You have successfully uploaded your image! Here is the link to your image...." and displays a link based on the returned parcel-location.  
 
