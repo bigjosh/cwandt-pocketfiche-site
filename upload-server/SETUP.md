@@ -93,10 +93,12 @@ http://localhost:8000/
 http://localhost:8000/admin.html?admin-id=ABCDEFGH
 ```
 
-**Upload page (code provided by admin):**
+**Backer upload interface:**
 ```
 http://localhost:8000/upload.html?code=XXXXXXXX
 ```
+
+Note: The system uses query parameters (`?code=`) to ensure browsers reload the page when switching between different codes.
 
 ## Usage Workflow
 

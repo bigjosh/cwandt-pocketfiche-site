@@ -53,7 +53,7 @@
       <p><b id="backer-id-display"></b></p>
       
       <p>Send this URL to the backer:</p>
-      <p id="url-display"></p>
+      <p><a id="url-display" href="" target="_blank" rel="noopener"></a></p>
       
       <p>
         <button type="button" id="copy-btn">Copy URL to Clipboard</button>
@@ -75,12 +75,12 @@
   </div>
 
   <script>
-    // Get admin-id from URL hash fragment
-    const hash = window.location.hash.slice(1); // Remove the '#'
-    const adminId = hash || null;
+    // Get admin-id from URL query parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const adminId = urlParams.get('admin-id');
     
     if (!adminId) {
-      document.body.innerHTML = '<div><h1>Error</h1><p>No admin-id provided in URL. Use: admin.html#YOUR_ADMIN_ID</p></div>';
+      document.body.innerHTML = '<div><h1>Error</h1><p>No admin-id provided in URL. Use: admin.html?admin-id=YOUR_ADMIN_ID</p></div>';
     }
     
     const form = document.getElementById('generate-form');
@@ -131,9 +131,10 @@
           codeValue.textContent = data.code;
           backerIdDisplay.textContent = backerId;
           
-          // Build upload URL with hash fragment
-          const uploadUrl = `${window.location.origin}${window.location.pathname.replace('admin.html', 'upload.html')}#${data.code}`;
+          // Build upload URL with query parameter
+          const uploadUrl = `${window.location.origin}${window.location.pathname.replace('admin.html', 'upload.html')}?code=${data.code}`;
           urlDisplay.textContent = uploadUrl;
+          urlDisplay.href = uploadUrl;
           
           // Hide form, show success
           form.style.display = 'none';
@@ -213,8 +214,8 @@
         allCodes.forEach(code => {
           html += '<tr>';
           
-          // Make code a link to upload page with hash fragment
-          const uploadUrl = `upload.html#${encodeURIComponent(code.code)}`;
+          // Make code a link to upload page with query parameter
+          const uploadUrl = `upload.html?code=${encodeURIComponent(code.code)}`;
           html += `<td><b><a href="${uploadUrl}" target="_blank" rel="noopener">${code.code}</a></b></td>`;
           
           html += `<td>${code['backer-id']}</td>`;

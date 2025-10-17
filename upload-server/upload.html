@@ -57,8 +57,18 @@
       <!-- Location selection -->
       <div id="location-section" class="hidden">
         <h2>Step 2: Choose Parcel Location</h2>
-        <p>Enter a location from A1 to AL38</p>
-        <p>See the parcel map <a href="/?names=true" target="_blank">here</a></p>
+        <p>Click a green parcel to select it, or enter manually below.</p>
+        
+        <!-- Parcel availability map -->
+        <div style="margin: 20px 0;">
+          <canvas id="parcel-map" width="760" height="760" 
+                  style="width: 100%; height: auto; border: 2px solid #333; cursor: default; display: block;"></canvas>
+          <p style="font-size: 12px; color: #888; margin-top: 10px; text-align: center;">
+            <span style="color: #00cc00;">●</span> Available &nbsp;
+            <span style="color: #666;">●</span> Taken &nbsp;
+            <span style="color: #fff;">●</span> Outside writable area
+          </p>
+        </div>
         
         <label for="parcel-location">Parcel Location</label>
         <input type="text" id="parcel-location" name="parcel-location" 
@@ -85,14 +95,17 @@
     <div id="success-display" class="hidden">
       <h2>Upload Successful!</h2>
       <p>Your parcel image has been uploaded to location: <strong id="uploaded-location"></strong></p>
-      <p>Our parcel integration team is on it. You should see it in the <a id="viewer-link" href="#" rel="noopener" target="_blank">viewer</a> within a few minutes.</p>
+      <p>Our new parcel integration team is on it. You should see it show up in the viewer within a few minutes.</p>
+      <p>Here is a direct link to your parcel in the viewer:<br>
+      <a id="viewer-link" href="#" rel="noopener" target="_blank">Viewer Link</a><br>
+      Share it with all your friends and tell them to join you before the whole neighborhood is bought out!</p>
     </div>
   </div>
 
   <script>
-    // Get code from URL hash fragment
-    const hash = window.location.hash.slice(1); // Remove the '#'
-    const code = hash || null;
+    // Get code from URL query parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
     
     if (!code) {
       document.body.innerHTML = '<div class="container"><h1>Error</h1><p>No access code provided in URL.</p></div>';
@@ -115,8 +128,184 @@
     const errorModal = document.getElementById('error-modal');
     const errorModalMessage = document.getElementById('error-modal-message');
     const errorModalClose = document.getElementById('error-modal-close');
+    const parcelMapCanvas = document.getElementById('parcel-map');
     
     let processedImageBlob = null;  // Store the processed image
+    let availableParcels = new Set();  // Store available parcel locations
+    let parcelMapData = null;  // Store parcel grid data for click detection
+    
+    // Constants for parcel grid
+    const GRID_SIZE = 38;
+    const LABEL_MAX_DISTANCE = 19;
+    
+    // Convert 0-based index to Excel-style letters (A, B, ..., Z, AA, AB, ..., AL)
+    function indexToLetters(idx) {
+      idx = idx + 1;  // Convert to 1-based
+      let result = '';
+      while (idx > 0) {
+        idx -= 1;
+        result = String.fromCharCode(65 + (idx % 26)) + result;
+        idx = Math.floor(idx / 26);
+      }
+      return result;
+    }
+    
+    // Build set of valid parcel locations within the 19mm circle
+    function buildValidParcels() {
+      const validParcels = new Set();
+      const centerRow = (GRID_SIZE - 1) / 2;  // 18.5
+      const centerCol = (GRID_SIZE - 1) / 2;  // 18.5
+      
+      for (let row = 0; row < GRID_SIZE; row++) {
+        for (let col = 0; col < GRID_SIZE; col++) {
+          // Calculate Euclidean distance from center
+          const distance = Math.sqrt(
+            Math.pow(row - centerRow, 2) + Math.pow(col - centerCol, 2)
+          );
+          
+          // Skip parcels outside the circle
+          if (distance > LABEL_MAX_DISTANCE) {
+            continue;
+          }
+          
+          // Convert row to letters, col to 1-based number
+          const rowLetters = indexToLetters(row);
+          const location = `${rowLetters}${col + 1}`;
+          validParcels.add(location);
+        }
+      }
+      
+      return validParcels;
+    }
+    
+    // Fetch list of taken parcels and draw the map
+    async function drawParcelMap() {
+      try {
+        // Fetch taken parcels
+        const response = await fetch('cgi-bin/app.py?command=get-parcels');
+        const data = await response.json();
+        
+        if (data.status !== 'success') {
+          console.error('Failed to fetch parcels:', data);
+          return;
+        }
+        
+        const takenParcels = new Set(data.parcels || []);
+        const validParcels = buildValidParcels();
+        
+        // Calculate available parcels (valid but not taken)
+        availableParcels.clear();
+        for (const parcel of validParcels) {
+          if (!takenParcels.has(parcel)) {
+            availableParcels.add(parcel);
+          }
+        }
+        
+        // Draw the grid
+        const canvas = parcelMapCanvas;
+        const ctx = canvas.getContext('2d');
+        const canvasSize = canvas.width;  // 760x760
+        const cellSize = canvasSize / GRID_SIZE;  // ~20px per cell
+        const margin = 2;  // 2px black margin
+        
+        // Clear canvas
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvasSize, canvasSize);
+        
+        // Store grid data for click detection
+        parcelMapData = {
+          cellSize: cellSize,
+          margin: margin,
+          validParcels: validParcels,
+          takenParcels: takenParcels
+        };
+        
+        // Draw each cell
+        for (let row = 0; row < GRID_SIZE; row++) {
+          for (let col = 0; col < GRID_SIZE; col++) {
+            const rowLetters = indexToLetters(row);
+            const location = `${rowLetters}${col + 1}`;
+            
+            const x = col * cellSize;
+            const y = (GRID_SIZE - 1 - row) * cellSize;  // Flip Y so A1 is at bottom-left (southwest)
+            
+            // Determine color
+            let color;
+            if (!validParcels.has(location)) {
+              color = '#ffffff';  // White - outside circle
+            } else if (takenParcels.has(location)) {
+              color = '#666666';  // Gray - taken
+            } else {
+              color = '#00cc00';  // Green - available
+            }
+            
+            // Draw cell with margin (black border)
+            ctx.fillStyle = '#000000';  // Black border
+            ctx.fillRect(x, y, cellSize, cellSize);
+            
+            // Draw inner colored square
+            ctx.fillStyle = color;
+            ctx.fillRect(x + margin, y + margin, cellSize - margin * 2, cellSize - margin * 2);
+          }
+        }
+        
+      } catch (error) {
+        console.error('Failed to draw parcel map:', error);
+      }
+    }
+    
+    // Handle mouse move on parcel map (change cursor)
+    parcelMapCanvas.addEventListener('mousemove', (e) => {
+      if (!parcelMapData) return;
+      
+      const rect = parcelMapCanvas.getBoundingClientRect();
+      const scaleX = parcelMapCanvas.width / rect.width;
+      const scaleY = parcelMapCanvas.height / rect.height;
+      
+      const canvasX = (e.clientX - rect.left) * scaleX;
+      const canvasY = (e.clientY - rect.top) * scaleY;
+      
+      const col = Math.floor(canvasX / parcelMapData.cellSize);
+      const row = GRID_SIZE - 1 - Math.floor(canvasY / parcelMapData.cellSize);  // Flip Y coordinate
+      
+      if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE) {
+        const rowLetters = indexToLetters(row);
+        const location = `${rowLetters}${col + 1}`;
+        
+        // Only show pointer cursor on available parcels
+        if (availableParcels.has(location)) {
+          parcelMapCanvas.style.cursor = 'pointer';
+        } else {
+          parcelMapCanvas.style.cursor = 'default';
+        }
+      }
+    });
+    
+    // Handle click on parcel map
+    parcelMapCanvas.addEventListener('click', (e) => {
+      if (!parcelMapData) return;
+      
+      const rect = parcelMapCanvas.getBoundingClientRect();
+      const scaleX = parcelMapCanvas.width / rect.width;
+      const scaleY = parcelMapCanvas.height / rect.height;
+      
+      const canvasX = (e.clientX - rect.left) * scaleX;
+      const canvasY = (e.clientY - rect.top) * scaleY;
+      
+      const col = Math.floor(canvasX / parcelMapData.cellSize);
+      const row = GRID_SIZE - 1 - Math.floor(canvasY / parcelMapData.cellSize);  // Flip Y coordinate
+      
+      if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE) {
+        const rowLetters = indexToLetters(row);
+        const location = `${rowLetters}${col + 1}`;
+        
+        // Only fill in available parcels
+        if (availableParcels.has(location)) {
+          parcelLocationInput.value = location;
+          console.log(`Selected parcel: ${location}`);
+        }
+      }
+    });
     
     // Check upload status on page load (blocks interaction until complete)
     async function checkUploadStatus() {
@@ -139,9 +328,12 @@
           const parcelLocation = data['parcel-location'];
           uploadedLocation.textContent = parcelLocation;
           
-          // Set viewer link
+          // Set viewer link with full absolute URL
+          const viewerBaseUrl = window.location.origin;
+          const fullPathToParcel = `${viewerBaseUrl}/?parcel=${encodeURIComponent(parcelLocation)}`;
           const viewerLink = document.getElementById('viewer-link');
-          viewerLink.href = `/?parcel=${encodeURIComponent(parcelLocation)}`;
+          viewerLink.href = fullPathToParcel;
+          viewerLink.textContent = fullPathToParcel;
           
           successDisplay.classList.remove('hidden');
           return;
@@ -279,6 +471,9 @@
             previewContainer.classList.add('visible');
             locationSection.classList.remove('hidden');
             
+            // Draw the parcel availability map
+            drawParcelMap();
+            
           }, 'image/png');
           
         } catch (error) {
@@ -338,9 +533,12 @@
           const parcelLocation = data.location;
           uploadedLocation.textContent = parcelLocation;
           
-          // Set viewer link
+          // Set viewer link with full absolute URL
+          const viewerBaseUrl = window.location.origin; // e.g., https://example.com
+          const fullPathToParcel = `${viewerBaseUrl}/?parcel=${encodeURIComponent(parcelLocation)}`;
           const viewerLink = document.getElementById('viewer-link');
-          viewerLink.href = `/?parcel=${encodeURIComponent(parcelLocation)}`;
+          viewerLink.href = fullPathToParcel;
+          viewerLink.textContent = fullPathToParcel;
           
           uploadForm.classList.add('hidden');
           successDisplay.classList.remove('hidden');
