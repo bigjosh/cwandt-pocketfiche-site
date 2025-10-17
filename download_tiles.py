@@ -96,7 +96,7 @@ def download_tile(server_url: str, col: int, row: int, output_dir: Path) -> bool
     # Generate filename: tile-{alphanumeric_row}{column}.png
     # Note: Using row letter and column number as specified
     row_letter = col_to_letters(row)  # Row gets letters
-    filename = f"tile-{row_letter}{col}.png"  # Format: tile-A5.png
+    filename = f"{row_letter}{col}.png"  # Format: tile-A5.png  
     output_path = output_dir / filename
     
     # Construct URL
