@@ -1029,9 +1029,11 @@
   }    
     
   // --- Click to Zoom to Parcel
-  // When user clicks on the map, check if they clicked inside a parcel
+  // When user clicks/taps on the map, check if they clicked inside a parcel
   // If so, zoom to fit that parcel with 10% margin
-  map.on('click', function(e) {
+  
+  // Extract zoom-to-parcel logic into a function for reuse with both click and tap events
+  function handleParcelZoom(e) {
     // Get click coordinates in map units
     const clickY = e.latlng.lat;  // In Leaflet CRS.Simple, lat = Y
     const clickX = e.latlng.lng;  // lng = X
@@ -1079,7 +1081,11 @@
       const parcelName = indexToLetters(row) + (col + 1);
       console.log(`Clicked on parcel ${parcelName} (row ${row}, col ${col})`);
     }
-  });
+  }
+  
+  // Register handler for both click (mouse) and tap (touch) events
+  map.on('click', handleParcelZoom);
+  map.on('tap', handleParcelZoom);
 
   // Note: layers control is already created above, no need to create it here
 
