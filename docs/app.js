@@ -1028,6 +1028,58 @@
     }    
   }    
     
+  // --- Click to Zoom to Parcel
+  // When user clicks on the map, check if they clicked inside a parcel
+  // If so, zoom to fit that parcel with 10% margin
+  map.on('click', function(e) {
+    // Get click coordinates in map units
+    const clickY = e.latlng.lat;  // In Leaflet CRS.Simple, lat = Y
+    const clickX = e.latlng.lng;  // lng = X
+    
+    // Convert map coordinates to parcel row/col
+    // Parcels are centered at origin, spanning from -19 to +18 in parcel units
+    const parcelX = clickX / mapunit_per_parceltile;  // X in parcel units
+    const parcelY = clickY / mapunit_per_parceltile;  // Y in parcel units
+    
+    // Convert to parcel indices (0-37)
+    const col = Math.floor(parcelX + PARCEL_COLS / 2);  // X=-19 → col=0, X=+18 → col=37
+    const row = Math.floor(parcelY + PARCEL_ROWS / 2);  // Y=-19 → row=0, Y=+18 → row=37
+    
+    // Check if click is within valid parcel bounds
+    if (row >= 0 && row < PARCEL_ROWS && col >= 0 && col < PARCEL_COLS) {
+      // Convert row/col back to parcel center coordinates
+      const parcelCenterX = (col - PARCEL_COLS / 2 + 0.5) * mapunit_per_parceltile;
+      const parcelCenterY = (row - PARCEL_ROWS / 2 + 0.5) * mapunit_per_parceltile;
+      
+      // Calculate parcel bounds in map units
+      const x0 = parcelCenterX - mapunit_per_parceltile / 2;
+      const x1 = parcelCenterX + mapunit_per_parceltile / 2;
+      const y0 = parcelCenterY - mapunit_per_parceltile / 2;
+      const y1 = parcelCenterY + mapunit_per_parceltile / 2;
+      
+      // Add 10% margin
+      const margin = 0.1;
+      const parcelWidth = mapunit_per_parceltile;
+      const parcelHeight = mapunit_per_parceltile;
+      
+      const boundsX0 = x0 - parcelWidth * margin;
+      const boundsY0 = y0 - parcelHeight * margin;
+      const boundsX1 = x1 + parcelWidth * margin;
+      const boundsY1 = y1 + parcelHeight * margin;
+      
+      const parcelBounds = L.latLngBounds(
+        [[boundsY0, boundsX0],  // Southwest corner
+         [boundsY1, boundsX1]]   // Northeast corner
+      );
+      
+      // Fit the map to show the parcel with margin
+      map.fitBounds(parcelBounds);
+      
+      // Generate parcel name for logging
+      const parcelName = indexToLetters(row) + (col + 1);
+      console.log(`Clicked on parcel ${parcelName} (row ${row}, col ${col})`);
+    }
+  });
 
   // Note: layers control is already created above, no need to create it here
 
