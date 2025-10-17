@@ -81,8 +81,24 @@ def is_tile_out_of_date(zoom: int, x: int, y: int, output_dir: Path, layer: str)
     return max_child_mtime > tile_mtime
 
 
-def load_parcel(filepath: Path) -> Optional[Image.Image]:
-    """Load and process a single parcel image."""
+def create_transparent_tile() -> Image.Image:
+    """Create a 1x1 transparent pixel image."""
+    return Image.new('RGBA', (1, 1), (0, 0, 0, 0))
+
+
+def load_parcel_or_transparent(filepath: Optional[Path]) -> Image.Image:
+    """Load and process a parcel image, or return transparent pixel if missing.
+    
+    Args:
+        filepath: Path to parcel file, or None for missing parcel
+        
+    Returns:
+        PIL Image (either loaded parcel or 1x1 transparent pixel)
+    """
+    if filepath is None or not filepath.exists():
+        # Missing parcel - return transparent pixel
+        return create_transparent_tile()
+    
     try:
         img = Image.open(filepath)
         if img.size != (TILE_SIZE, TILE_SIZE):
@@ -91,12 +107,20 @@ def load_parcel(filepath: Path) -> Optional[Image.Image]:
         img = snap_to_black_or_white(img)
         return img
     except Exception as e:
-        print(f"❌ Failed to load {filepath.name}: {e}")
-        return None
+        print(f"❌ Failed to load {filepath.name}: {e}, using transparent pixel")
+        return create_transparent_tile()
 
 
-def rebuild_tile_at_zoom_6(row: int, col: int, parcel_img: Image.Image, output_dir: Path) -> Tuple[Path, Path]:
-    """Rebuild a single tile at zoom level 6. Returns paths to created tiles."""
+def rebuild_tile_at_zoom_6(row: int, col: int, parcel_img: Image.Image, output_dir: Path, is_empty: bool = False) -> Tuple[Path, Path]:
+    """Rebuild a single tile at zoom level 6. Returns paths to created tiles.
+    
+    Args:
+        row: Grid row position
+        col: Grid column position
+        parcel_img: Parcel image (or transparent pixel if empty)
+        output_dir: Output directory
+        is_empty: True if this is an empty/missing parcel location
+    """
     tile_x = col + OFFSET
     tile_y = OFFSET + (GRID_SIZE - 1) - row
     
@@ -173,47 +197,56 @@ def incremental_build(parcels_dir: Path, output_dir: Path, force: bool = False):
     # Create output directory if needed
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Phase 1: Build zoom 6 tiles (check parcel timestamps)
-    print(f"🔨 Phase 1: Zoom level {MAX_ZOOM} (checking parcel timestamps)...")
+    # Phase 1: Build zoom 6 tiles (check all grid positions)
+    print(f"🔨 Phase 1: Zoom level {MAX_ZOOM} (checking all {GRID_SIZE}x{GRID_SIZE} positions)...")
     
     rebuilt_count = 0
     skipped_count = 0
+    missing_parcel_count = 0
     
-    # Get all parcel files
-    parcel_files = sorted(parcels_dir.glob("*.png"))
-    
-    if not parcel_files:
-        print("❌ No parcel images found!")
-        return 1
-    
-    for parcel_path in parcel_files:
+    # Build map of existing parcels
+    parcel_map: Dict[Tuple[int, int], Path] = {}
+    for parcel_path in parcels_dir.glob("*.png"):
         coords = parse_parcel_filename(parcel_path.name)
-        if not coords:
-            print(f"⚠️  Skipping unrecognized filename: {parcel_path.name}")
-            continue
-        
-        row, col = coords
-        tile_x = col + OFFSET
-        tile_y = OFFSET + (GRID_SIZE - 1) - row
-        
-        # Check both image and label tiles
-        image_tile_path = output_dir / "images" / "6" / str(tile_x) / f"{tile_y}.png"
-        label_tile_path = output_dir / "labels" / "6" / str(tile_x) / f"{tile_y}.png"
-        
-        # Rebuild if either tile is out of date
-        image_needs_rebuild = is_tile_out_of_date_zoom_6(parcel_path, image_tile_path)
-        label_needs_rebuild = is_tile_out_of_date_zoom_6(parcel_path, label_tile_path)
-        
-        if image_needs_rebuild or label_needs_rebuild:
-            parcel_img = load_parcel(parcel_path)
-            if parcel_img:
+        if coords:
+            parcel_map[coords] = parcel_path
+    
+    print(f"   Found {len(parcel_map)} parcel files")
+    
+    # Check all positions in the grid
+    for row in range(GRID_SIZE):
+        for col in range(GRID_SIZE):
+            tile_x = col + OFFSET
+            tile_y = OFFSET + (GRID_SIZE - 1) - row
+            
+            # Check both image and label tiles
+            image_tile_path = output_dir / "images" / "6" / str(tile_x) / f"{tile_y}.png"
+            label_tile_path = output_dir / "labels" / "6" / str(tile_x) / f"{tile_y}.png"
+            
+            # Get parcel path (None if missing)
+            parcel_path = parcel_map.get((row, col))
+            
+            # Determine if rebuild is needed
+            # For missing parcels, we use mtime of 0, so tiles only rebuild if they don't exist
+            if parcel_path:
+                image_needs_rebuild = is_tile_out_of_date_zoom_6(parcel_path, image_tile_path)
+                label_needs_rebuild = is_tile_out_of_date_zoom_6(parcel_path, label_tile_path)
+            else:
+                # Missing parcel - only rebuild if tiles don't exist
+                image_needs_rebuild = not image_tile_path.exists()
+                label_needs_rebuild = not label_tile_path.exists()
+            
+            if image_needs_rebuild or label_needs_rebuild:
+                # Load parcel or use transparent pixel
+                parcel_img = load_parcel_or_transparent(parcel_path)
                 rebuild_tile_at_zoom_6(row, col, parcel_img, output_dir)
                 rebuilt_count += 1
-                print(f"   ✅ {parcel_path.name} -> tile ({tile_x}, {tile_y})")
-        else:
-            skipped_count += 1
+                if parcel_path is None:
+                    missing_parcel_count += 1
+            else:
+                skipped_count += 1
     
-    print(f"   Rebuilt: {rebuilt_count}, Up-to-date: {skipped_count}")
+    print(f"   Rebuilt: {rebuilt_count} (including {missing_parcel_count} empty), Up-to-date: {skipped_count}")
     print()
     
     # Phase 2: Build zoom levels 5 down to 0 (check child timestamps)

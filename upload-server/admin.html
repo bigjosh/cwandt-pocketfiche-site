@@ -222,7 +222,7 @@
         html += '<tr>';
         html += `<th><a href="#" onclick="sortCodes('code'); return false;">Code ${sortField === 'code' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += `<th><a href="#" onclick="sortCodes('backer-id'); return false;">Backer ID ${sortField === 'backer-id' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
-        html += `<th><a href="#" onclick="sortCodes('admin-id'); return false;">Created By ${sortField === 'admin-id' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
+        html += `<th><a href="#" onclick="sortCodes('admin-name'); return false;">Created By ${sortField === 'admin-name' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += '<th>Notes</th>';
         html += `<th><a href="#" onclick="sortCodes('parcel-location'); return false;">Location ${sortField === 'parcel-location' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += `<th><a href="#" onclick="sortCodes('status'); return false;">Status ${sortField === 'status' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
@@ -236,7 +236,7 @@
           html += `<td><b><a href="${uploadUrl}" target="_blank" rel="noopener">${code.code}</a></b></td>`;
           
           html += `<td>${code['backer-id']}</td>`;
-          html += `<td>${code['admin-id'] || ''}</td>`;
+          html += `<td>${code['admin-name'] || ''}</td>`;
           html += `<td>${code.notes || ''}</td>`;
           
           // Make parcel-location a link if it exists

@@ -123,10 +123,10 @@ The data directory has the following structure:
 
 ```
 data/
-    admins/ - one file per admin. The name of the file is `{admin-id}.txt` and the contents of the file are the name
-     of the admin and the notes separated by a newline.
+    admins/ - one file per admin. The name of the file is `{admin-id}.txt` and the contents of the file are:
+     line 1: admin-name, line 2+: optional notes.
     access/ - one file per access code. The name of the file is `{code}.txt` and the contents of the file are 
-    line 1: backer-id, line 2: admin-id (who created it), line 3+: notes (can contain newlines). 
+    line 1: backer-id, line 2: admin-name (who created it), line 3+: notes (can contain newlines). 
     locations/ - one file per access code. The name of the file is `{code}.txt` and the contents of the file are 
     the parcel-location. If the code is here, then the user has already successfully uploaded an image.
     parcels/ - one file per parcel. The name of the file is the `{parcel-location}.png` and the contents of the file are the parcel-image.
@@ -142,7 +142,7 @@ Checks for autorization as described above.
 
 This command generates a new access code for a backer. It takes a POST with the `backer-id` and `notes` and optional `parcel-location` parameters. 
 
-To generate the code, we generate a true random string of 8 uppercase characters. We then "atomic-add" a file in the data directory named `access/{code}.txt` where `code` is the code, and the contents of the file are line 1: backer-id, line 2: admin-id (who created it), line 3+: notes (can contain newlines). 
+To generate the code, we first read the admin-name from the first line of `admins/{admin-id}.txt`. Then we generate a true random string of 8 uppercase characters. We then "atomic-add" a file in the data directory named `access/{code}.txt` where `code` is the code, and the contents of the file are line 1: backer-id, line 2: admin-name (who created it), line 3+: notes (can contain newlines). 
 
 If the "atomic-add" fails, we return json `{'status': 'error', 'message': 'code already exists'}`.
 
@@ -164,7 +164,7 @@ This command returns a list of all the access codes in the data directory. It ta
 
 If the admin-id is not authorized, we return a "401: not autorized" error. 
 
-If the admin-id is authorized, we return a JSON array of all the access codes in the data directory. Each code includes: code, backer-id, notes, admin-id (who created it), parcel-location (if assigned), and status. Status values: 'free' (no location assigned), 'claimed' (location assigned but image not uploaded yet), 'uploaded' (parcel image file exists in data/parcels/). 
+If the admin-id is authorized, we return a JSON array of all the access codes in the data directory. Each code includes: code, backer-id, notes, admin-name (who created it), parcel-location (if assigned), and status. Status values: 'free' (no location assigned), 'claimed' (location assigned but image not uploaded yet), 'uploaded' (parcel image file exists in data/parcels/). 
 
 #### backer commands
 

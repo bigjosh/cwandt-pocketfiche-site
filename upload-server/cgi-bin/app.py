@@ -343,8 +343,9 @@ def check_admin_auth(admin_id: str, data_dir: Path) -> bool:
     admin_file = data_dir / 'admins' / f'{admin_id}.txt'
     
     # Debug logging to stderr (not stdout, which is for HTTP response)
+    # Never log the admin_id itself - only log the file path and result
     authorized = admin_file.exists()
-    print(f"Admin `{admin_file}` {admin_id} authorized: {authorized}", file=sys.stderr)
+    print(f"Admin auth check for `{admin_file}`: {authorized}", file=sys.stderr)
     
     return authorized
 
@@ -372,6 +373,17 @@ def handle_generate_code(form: cgi.FieldStorage, data_dir: Path) -> None:
         send_json({'status': 'error', 'message': 'Not authorized', 'code': 401})
         return
     
+    # Read admin-name from admin file (first line)
+    admin_file = data_dir / 'admins' / f'{admin_id}.txt'
+    try:
+        admin_name = admin_file.read_text(encoding='utf-8').split('\n', 1)[0].strip()
+        if not admin_name:
+            # Empty file - use generic fallback, never expose admin_id
+            admin_name = "[Admin]"
+    except Exception:
+        # Error reading file - use generic fallback, never expose admin_id
+        admin_name = "[Admin]"
+    
     # Get POST parameters
     backer_id = form.getfirst('backer-id', '').strip()
     notes = form.getfirst('notes', '').strip()
@@ -392,7 +404,7 @@ def handle_generate_code(form: cgi.FieldStorage, data_dir: Path) -> None:
     for _ in range(10):
         code = generate_code()
         access_file = data_dir / 'access' / f'{code}.txt'
-        content = f"{backer_id}\n{admin_id}\n{notes}"
+        content = f"{backer_id}\n{admin_name}\n{notes}"
         
         success, _ = atomic_add_file(access_file, content)
         if success:
@@ -438,12 +450,12 @@ def handle_get_codes(form: cgi.FieldStorage, data_dir: Path) -> None:
         for access_file in sorted(access_dir.glob('*.txt')):
             code = access_file.stem  # filename without .txt
             
-            # Read backer-id, admin-id, and notes from access file
-            # Format: line 1 = backer-id, line 2 = admin-id, rest = notes (can have newlines)
+            # Read backer-id, admin-name, and notes from access file
+            # Format: line 1 = backer-id, line 2 = admin-name, rest = notes (can have newlines)
             content = access_file.read_text(encoding='utf-8')
             lines = content.split('\n', 2)
             backer_id = lines[0].strip() if len(lines) > 0 else ''
-            creator_admin_id = lines[1].strip() if len(lines) > 1 else ''
+            creator_admin_name = lines[1].strip() if len(lines) > 1 else ''
             notes = lines[2].strip() if len(lines) > 2 else ''
             
             # Check if code has a location assigned
@@ -465,7 +477,7 @@ def handle_get_codes(form: cgi.FieldStorage, data_dir: Path) -> None:
             code_info = {
                 'code': code,
                 'backer-id': backer_id,
-                'admin-id': creator_admin_id,
+                'admin-name': creator_admin_name,
                 'notes': notes,
                 'status': status
             }
