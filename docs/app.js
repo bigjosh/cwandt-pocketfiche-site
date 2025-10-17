@@ -553,24 +553,12 @@
     svgElement.style.width = '100%';
     svgElement.style.height = '100%';
     
-    // Create a link wrapper for the SVG
-    const link = document.createElement('a');
-    link.href = 'https://cwandt.com';
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    link.style.display = 'block';
-    link.style.width = '100%';
-    link.style.height = '100%';
-    link.style.cursor = 'pointer';
-    link.appendChild(svgElement);
-    
-    // Create a container div to hold the link
-    // I tried to just use an SVG element directly but it didn't work so chatgpt suggested this and it works. 
+    // Create a container div to hold the SVG (not a link, just decorative)
     const container = document.createElement('div');
-    container.appendChild(link);
+    container.appendChild(svgElement);
     container.style.position = 'absolute';
     container.style.transition = 'opacity 0.25s ease-in-out';
-    container.style.pointerEvents = 'auto';  // Enable pointer events for clickability
+    container.style.pointerEvents = 'none';  // Never intercept clicks
     container.style.zIndex = '1000';  // Above map tiles (200) and overlays (400)
     container.style.opacity = 0;
     return container;
@@ -1183,8 +1171,7 @@
       // We are leaving the logo zoom level, start fading out immediately
       // Direct DOM manipulation of the image allows CSS transition to work during zoom animation
       
-      cwandtLogoSvgDiv.style.opacity = 0;      
-      cwandtLogoSvgDiv.style.pointerEvents = 'none';
+      cwandtLogoSvgDiv.style.opacity = 0;
     }
   });
   
@@ -1220,8 +1207,7 @@
       cwandtLogoSvgDiv.style.transform = 'translate(-50%, -50%)'; 
       
       // Fade it in
-      cwandtLogoSvgDiv.style.opacity = 1;      
-      cwandtLogoSvgDiv.style.pointerEvents = 'auto';
+      cwandtLogoSvgDiv.style.opacity = 1;
 
     }
   });

@@ -129,6 +129,7 @@ body {
   color: #ffffff; /* White link text */
   text-decoration: underline;
   pointer-events: auto; /* Links should be clickable */
+  display: inline; /* Ensure links only cover text */
 }
 
 #banner a:hover {
