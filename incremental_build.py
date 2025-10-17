@@ -137,19 +137,21 @@ def is_parcel_claimable_maxzoom_coords(x: int, y: int) -> Optional[str]:
 
 
 def create_transparent_tile() -> Image.Image:
-    """Create a 1x1 transparent pixel image."""
-    return Image.new('RGBA', (1, 1), (0, 0, 0, 0))
+    """Create a TILE_SIZE x TILE_SIZE transparent tile image."""
+    # we make it a full tiole even though that uses slightly more bandwith so we can hopefully save the browser some
+    # computer having to scale it?
+    return Image.new('RGBA', (TILE_SIZE, TILE_SIZE), (0, 0, 0, 0))
 
-def get_placeholder_pixel_path(output_dir: Path) -> Path:
-    """Get path to the placeholder pixel file."""
-    return output_dir / "placeholder_pixel.png"
+def get_placeholder_tile_path(output_dir: Path) -> Path:
+    """Get path to the placeholder tile file."""
+    return output_dir / "placeholder_tile.png"
 
-def generate_placeholder_pixel_file(output_dir: Path) -> None:
-    """Generate a 1x1 transparent PNG with smallest possible file size."""
-    placeholder_path = get_placeholder_pixel_path(output_dir)
+def generate_placeholder_tile_file(output_dir: Path) -> None:
+    """Generate a TILE_SIZE x TILE_SIZE transparent PNG tile."""
+    placeholder_path = get_placeholder_tile_path(output_dir)
     placeholder_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Create 1x1 transparent pixel and save as optimized PNG
+    # Create transparent tile and save as optimized PNG
     img = create_transparent_tile()
     img.save(placeholder_path, 'PNG', optimize=True)    
 
@@ -300,13 +302,13 @@ def incremental_update_image_tile_at_maxzoom(x: int, y: int, parcels_dir: Path, 
     # Get parcel label for this tile position (accounts for offset)
     parcel_name = maxzoom_tile_coords_to_label(x, y)
     
-    # Determine source file: either parcel or placeholder pixel
+    # Determine source file: either parcel or placeholder tile
     if parcel_name is None:
-        parcel_path = get_placeholder_pixel_path(output_dir)
+        parcel_path = get_placeholder_tile_path(output_dir)
     else:
         parcel_path = parcels_dir / f"{parcel_name}.png"
         if not parcel_path.exists():
-            parcel_path = get_placeholder_pixel_path(output_dir)
+            parcel_path = get_placeholder_tile_path(output_dir)
     
     image_tile_path = output_dir / "images" / str(MAX_ZOOM) / str(x) / f"{y}.png"
 
@@ -508,8 +510,8 @@ def generate_labels_maxzoom(output_dir: Path):
                 label_img.save(label_path, 'PNG')
                 labels_created += 1
             else:
-                # Copy placeholder pixel file for non-claimable positions
-                placeholder_path = get_placeholder_pixel_path(output_dir)
+                # Copy placeholder tile file for non-claimable positions
+                placeholder_path = get_placeholder_tile_path(output_dir)
                 shutil.copy(placeholder_path, label_path)
                 transparent_created += 1
     
@@ -527,8 +529,8 @@ def init_output_dir(output_dir: Path):
     
     # we will use this to fill in any MAXZOOM tile that does not have a proper source,
     # so either an image tile that no parcel exists for, or a label tile for non-claimable parcels
-    print("🔨 Generating placeholder pixel file...")
-    generate_placeholder_pixel_file(output_dir)
+    print("🔨 Generating placeholder tile file...")
+    generate_placeholder_tile_file(output_dir)
     
     # note that we do not need to explicitly rebuild the labels tree here since we deleted the output dir so all
     # the labels will anturally get rebuilt
