@@ -320,8 +320,9 @@ def incremental_update_image_tile_at_maxzoom(x: int, y: int, parcels_dir: Path, 
         image_dir = output_dir / "images" / str(MAX_ZOOM) / str(x)
         image_dir.mkdir(parents=True, exist_ok=True)
         
-        # Use copy2 to preserve source file timestamp
-        shutil.copy2(parcel_path, image_tile_path)
+        # copy gives the target file a new timestamp
+        # we want this so when a parcel gets deleted, the new placeholder will trigger a rebuild of lower zoom tiles
+        shutil.copy(parcel_path, image_tile_path)
         
         return True
     
