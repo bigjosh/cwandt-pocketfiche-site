@@ -351,7 +351,7 @@
           label = '1cwt';
           break;
           
-        case (zoom <= -5):
+        case (zoom < CWANT_LOGO_ZOOM_LEVEL):
           // ===== ASTRONOMICAL UNIT SCALE (solar system) =====
           {
             // Calculate pixels per map unit at current zoom
@@ -361,10 +361,13 @@
             
             // Define available AU scales
             const auScales = [
-              { factor: 0.01, label: '0.01 AU' },
-              { factor: 0.1, label: '0.1 AU' },
-              { factor: 1.0, label: '1 AU' },
-              { factor: 10.0, label: '10 AU' }
+              { factor: 0.00001, label: '0.00001AU' },
+              { factor: 0.0001,  label: '0.0001AU' },
+              { factor: 0.001,   label: '0.001AU' },
+              { factor: 0.01,    label: '0.01AU' },
+              { factor: 0.1,     label: '0.1AU' },
+              { factor: 1.0,     label: '1AU' },
+              { factor: 10.0,    label: '10AU' }
             ];
             
             // Create a temporary canvas to measure text width
