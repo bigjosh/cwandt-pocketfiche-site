@@ -32,6 +32,7 @@ import os
 import re
 import secrets
 import sys
+import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -188,6 +189,44 @@ def atomic_add_file(file_path: Path, content: str) -> Tuple[bool, Optional[str]]
         raise
 
 
+def atomic_replace_file(file_path: Path, content: str) -> None:
+    """Atomically replace a file's contents (or create if doesn't exist).
+    
+    Uses write-to-temp-then-rename pattern to ensure atomicity.
+    The file is never missing during the operation.
+    
+    Args:
+        file_path: Target file path
+        content: Content to write
+    """
+    # Ensure parent directory exists
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Create temp file in same directory (ensures same filesystem for atomic rename)
+    fd, temp_path = tempfile.mkstemp(dir=file_path.parent, text=True)
+    temp_path = Path(temp_path)
+    
+    try:
+        # Write content to temp file via file descriptor
+        os.write(fd, content.encode('utf-8'))
+        os.close(fd)
+        
+        # Atomically replace target file with temp file
+        # os.replace() is guaranteed to be atomic on both Unix and Windows
+        # and will overwrite the target if it exists
+        temp_path.replace(file_path)
+        
+    except Exception as e:
+        # Clean up temp file if it exists
+        try:
+            os.close(fd)
+        except:
+            pass
+        if temp_path.exists():
+            temp_path.unlink()
+        raise
+
+
 def atomic_add_binary_file(file_path: Path, content: bytes) -> Tuple[bool, bool]:
     """Atomically add a binary file. Returns (success, file_existed).
     
@@ -336,20 +375,37 @@ def handle_generate_code(form: cgi.FieldStorage, data_dir: Path) -> None:
     # Get POST parameters
     backer_id = form.getfirst('backer-id', '').strip()
     notes = form.getfirst('notes', '').strip()
+    parcel_location = form.getfirst('parcel-location', '').strip().upper()
     
     if not backer_id:
         send_json({'status': 'error', 'message': 'backer-id required', 'code': 400})
         return
+    
+    # If parcel-location specified, validate it
+    if parcel_location:
+        if not validate_parcel_location(parcel_location):
+            send_json({'status': 'error', 'message': 'Invalid parcel location'})
+            return
     
     # Generate code and try to save it
     # Try up to 10 times in case of collision (very unlikely)
     for _ in range(10):
         code = generate_code()
         access_file = data_dir / 'access' / f'{code}.txt'
-        content = f"{backer_id}\n{notes}"
+        content = f"{backer_id}\n{admin_id}\n{notes}"
         
         success, _ = atomic_add_file(access_file, content)
         if success:
+            # If parcel-location specified, save it to locations/{code}.txt
+            # Use atomic replace to allow overwrites for migration/re-assignment
+            if parcel_location:
+                location_file = data_dir / 'locations' / f'{code}.txt'
+                try:
+                    atomic_replace_file(location_file, parcel_location)
+                except Exception as e:
+                    send_json({'status': 'error', 'message': f'Failed to save location: {e}'})
+                    return
+            
             send_json({'status': 'success', 'code': code})
             return
     
@@ -382,17 +438,25 @@ def handle_get_codes(form: cgi.FieldStorage, data_dir: Path) -> None:
         for access_file in sorted(access_dir.glob('*.txt')):
             code = access_file.stem  # filename without .txt
             
-            # Read backer-id and notes from access file
-            content = access_file.read_text(encoding='utf-8').strip()
-            lines = content.split('\n', 1)
-            backer_id = lines[0] if len(lines) > 0 else ''
-            notes = lines[1] if len(lines) > 1 else ''
+            # Read backer-id, admin-id, and notes from access file
+            # Format: line 1 = backer-id, line 2 = admin-id, rest = notes (can have newlines)
+            content = access_file.read_text(encoding='utf-8')
+            lines = content.split('\n', 2)
+            backer_id = lines[0].strip() if len(lines) > 0 else ''
+            creator_admin_id = lines[1].strip() if len(lines) > 1 else ''
+            notes = lines[2].strip() if len(lines) > 2 else ''
             
-            # Check if code has been used (has location file)
+            # Check if code has a location assigned
             location_file = locations_dir / f'{code}.txt'
             if location_file.exists():
                 parcel_location = location_file.read_text(encoding='utf-8').strip()
-                status = 'used'
+                
+                # Check if actual parcel image file exists
+                parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
+                if parcel_file.exists():
+                    status = 'uploaded'
+                else:
+                    status = 'claimed'
             else:
                 parcel_location = None
                 status = 'free'
@@ -401,6 +465,7 @@ def handle_get_codes(form: cgi.FieldStorage, data_dir: Path) -> None:
             code_info = {
                 'code': code,
                 'backer-id': backer_id,
+                'admin-id': creator_admin_id,
                 'notes': notes,
                 'status': status
             }
@@ -435,42 +500,56 @@ def handle_get_parcel(form: cgi.FieldStorage, data_dir: Path) -> None:
         send_json({'status': 'error', 'message': 'code not found'})
         return
     
-    # Check if this code has uploaded an image
+    # Check if this code has a location assigned
     location_file = data_dir / 'locations' / f'{code}.txt'
     if not location_file.exists():
-        send_json({'status': 'free', 'message': 'no image uploaded'})
+        send_json({'status': 'free', 'message': 'no location assigned'})
         return
     
     # Get the parcel location
     parcel_location = location_file.read_text(encoding='utf-8').strip()
     
-    # Return success with parcel location
-    send_json({'status': 'success', 'parcel-location': parcel_location})
+    # Check if actual parcel image file exists
+    parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
+    if parcel_file.exists():
+        # Image has been uploaded
+        send_json({'status': 'uploaded', 'parcel-location': parcel_location})
+    else:
+        # Location claimed but image not uploaded yet
+        send_json({'status': 'claimed', 'parcel-location': parcel_location})
 
 
 def handle_get_parcels(form: cgi.FieldStorage, data_dir: Path) -> None:
     """Handle get-parcels command (public).
     
-    Returns a list of all parcel locations that have been uploaded.
+    Returns a list of all claimed parcel locations (locations assigned to codes).
     No authorization required.
     
     Args:
         form: CGI form data
         data_dir: Path to data directory
     """
-    parcels_dir = data_dir / 'parcels'
+    locations_dir = data_dir / 'locations'
     
-    # Get all parcel files
-    parcel_locations = []
+    # Use a set to ensure each location only appears once
+    claimed_locations = set()
     
-    if parcels_dir.exists():
-        for parcel_file in sorted(parcels_dir.glob('*.png')):
-            # Get parcel location from filename (remove .png extension)
-            location = parcel_file.stem
-            parcel_locations.append(location)
+    if locations_dir.exists():
+        for location_file in locations_dir.glob('*.txt'):
+            # Read the parcel location from the file
+            try:
+                location = location_file.read_text(encoding='utf-8').strip()
+                if location:
+                    claimed_locations.add(location)
+            except Exception:
+                # Skip files that can't be read
+                continue
     
-    # Return JSON array of parcel locations
-    send_json({'status': 'success', 'parcels': parcel_locations})
+
+
+    
+    # Return JSON array of claimed parcel locations (sorted for consistency)
+    send_json({'status': 'success', 'parcels': sorted(claimed_locations)})
 
 
 def handle_upload(form: cgi.FieldStorage, data_dir: Path) -> None:
@@ -521,23 +600,35 @@ def handle_upload(form: cgi.FieldStorage, data_dir: Path) -> None:
         send_json({'status': 'error', 'message': error_message})
         return
     
-    # Try to add location file (prevents duplicate uploads with same code)
+    # Check if location file already exists (pre-assigned location)
     location_file = data_dir / 'locations' / f'{code}.txt'
-    success, existing_content = atomic_add_file(location_file, parcel_location)
+    location_was_preassigned = location_file.exists()
     
-    if not success:
-        # Code already used
-        existing_location = existing_content.strip() if existing_content else parcel_location
-        send_json({'status': 'used', 'location': existing_location})
-        return
+    if location_was_preassigned:
+        # Location was pre-assigned - verify it matches
+        existing_location = location_file.read_text(encoding='utf-8').strip()
+        if existing_location != parcel_location:
+            send_json({'status': 'error', 'message': 'Wrong location'})
+            return
+        # Location matches - continue to parcel file check (skip atomic_add_file)
+    else:
+        # No pre-assigned location - try to add location file (prevents duplicate uploads with same code)
+        success, existing_content = atomic_add_file(location_file, parcel_location)
+        
+        if not success:
+            # Code already used
+            existing_location = existing_content.strip() if existing_content else parcel_location
+            send_json({'status': 'used', 'location': existing_location})
+            return
     
     # Try to add parcel image file (save converted 1-bit version)
     parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
     success, file_existed = atomic_add_binary_file(parcel_file, converted_image_data)
     
     if not success:
-        # Location already taken - rollback location file
-        location_file.unlink()
+        # Location already taken - rollback location file only if we created it
+        if not location_was_preassigned:
+            location_file.unlink()
         send_json({'status': 'taken', 'location': parcel_location})
         return
     

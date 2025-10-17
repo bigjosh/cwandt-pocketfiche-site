@@ -75,7 +75,7 @@ Authentication credentials (admin-id and code) are passed via query parameters (
 
 URL format: `admin.html?admin-id={admin-id}`
 
-A simple form with fields for "backer-id" and "notes". JavaScript extracts the admin-id from the URL query parameter and submits a POST with those fields to the app processor with the `command` parameter set to `generate-code` and the `admin-id` parameter. The POST also has the `backer-id` and `notes` parameters. 
+A simple form with fields for "backer-id" and "notes" and optional "parcel-location". JavaScript extracts the admin-id from the URL query parameter and submits a POST with those fields to the app processor with the `command` parameter set to `generate-code` and the `admin-id` parameter. The POST also has the `backer-id` and `notes` parameters. 
 
 If the POST is successful, it shows a page with the specified backer-id and the URL to the `upload.html` page using the format `upload.html?code={code}`. It has a button to copy the URL to the clipboard. 
 
@@ -126,7 +126,7 @@ data/
     admins/ - one file per admin. The name of the file is `{admin-id}.txt` and the contents of the file are the name
      of the admin and the notes separated by a newline.
     access/ - one file per access code. The name of the file is `{code}.txt` and the contents of the file are 
-    the backer-id and the notes separated by a newline. 
+    line 1: backer-id, line 2: admin-id (who created it), line 3+: notes (can contain newlines). 
     locations/ - one file per access code. The name of the file is `{code}.txt` and the contents of the file are 
     the parcel-location. If the code is here, then the user has already successfully uploaded an image.
     parcels/ - one file per parcel. The name of the file is the `{parcel-location}.png` and the contents of the file are the parcel-image.
@@ -140,14 +140,23 @@ The admin commands are protected by needing a valid admin-id in the `admin-id` p
 
 Checks for autorization as described above. 
 
-This command generates a new access code for a backer. It takes a POST with the `backer-id` and `notes` parameters. 
+This command generates a new access code for a backer. It takes a POST with the `backer-id` and `notes` and optional `parcel-location` parameters. 
 
-To generate the code, we generate a true random string of 8 uppercase characters. We then "atomic-add" a file in the data directory named `access/{code}.txt` where `code` is the code, and the contents of the file are the backer-id and the notes separated by a newline. 
-
-If the "atomic-add" succeeds, we return json `{'status': 'success', 'code': code}`.
+To generate the code, we generate a true random string of 8 uppercase characters. We then "atomic-add" a file in the data directory named `access/{code}.txt` where `code` is the code, and the contents of the file are line 1: backer-id, line 2: admin-id (who created it), line 3+: notes (can contain newlines). 
 
 If the "atomic-add" fails, we return json `{'status': 'error', 'message': 'code already exists'}`.
 
+If the "atomic-add" succeeds, then we check if a parcel-location was specified. If it was, we check if the parcel-location is valid. If it is not, we return json `{'status': 'error', 'message': 'invalid parcel-location'}`.
+
+If a parcel-location was specified and the parcel-location is valid, we create/overwrite a file in the data directory named `locations/{code}.txt` where `code` is the code, and the contents of the file are the parcel-location. Then we return json `{'status': 'success', 'code': code}`.
+
+If a parcel-location was specified and the parcel-location is not valid, we return json `{'status': 'error', 'message': 'invalid parcel-location'}`.
+
+If a parcel-location was not specified, we return json `{'status': 'success', 'code': code}`.
+
+###### The optional parcel-location parameter
+
+The optional parcel-location parameter is used to specify the parcel-location that the backer will be uploading an image for. This is for cases where a backer alreday clamed a locatiuon in the legacy system and we want to migrate them to the new system. It can also be used to allow overwriting of existing parcels by generating a code that points to that parcel. 
 
 ##### command=`get-codes`
 
@@ -155,19 +164,21 @@ This command returns a list of all the access codes in the data directory. It ta
 
 If the admin-id is not authorized, we return a "401: not autorized" error. 
 
-If the admin-id is authorized, we return a JSON array of all the access codes in the data directory. 
+If the admin-id is authorized, we return a JSON array of all the access codes in the data directory. Each code includes: code, backer-id, notes, admin-id (who created it), parcel-location (if assigned), and status. Status values: 'free' (no location assigned), 'claimed' (location assigned but image not uploaded yet), 'uploaded' (parcel image file exists in data/parcels/). 
 
 #### backer commands
 
 ##### command=`get-parcel`
 
-This command returns the PNG file that has already been uploiaded for {code}. It takes a GET with the `code` parameter. 
+This command returns the status and location for a given code. It takes a GET with the `code` parameter. 
 
-If the code does not exist, we return JSON "{ status: "error" , "message": "code not found"}".
+If the code does not exist, we return JSON `{ "status": "error", "message": "code not found"}`.
 
-If the code does exist but has not yet uploaded an image, we return JSON "{ status: "free" , "message": "no image uploaded"}".
+If the code exists but has no location assigned, we return JSON `{ "status": "free", "message": "no location assigned"}`.
 
-If the code exists and an image has already been uploaded, we return JSON "{ status: "success" , "parcel-location": "parcel-location"}".
+If the code has a location assigned but no image uploaded yet, we return JSON `{ "status": "claimed", "parcel-location": "parcel-location"}`.
+
+If the code has a location assigned and the image file exists, we return JSON `{ "status": "uploaded", "parcel-location": "parcel-location"}`.
 
 ##### command=`upload`.
 
@@ -176,8 +187,10 @@ This command handles the upload of a parcel image. It takes a POST with the `cod
 1. check the code exists in the `access/` dir and if not returns a "401: not autorized" error. 
 2. check if the parcel location is valid format (all caps, A1 to AL38). If it is not, we return a "400: Invalid location" error. 
 3. check if the image is a 500x500 1-bit black-and-white only PNG. If not, we return a "406: Invalid image" error.
-4. atomic-add a new file `locations/{code}.txt`. The file new contents are the requested parcel-location. If this fails, we return the error as JSON `{'status': 'used', 'location': existing location}` where existing location is the location that was in the existing file that blocked us from doing the atomic-add.
-5. "atomic-add" the uploaded image file to the `parcels/` dir as {parcel-location}.png`. If this fails, we return JSON `{ status: 'taken', location: existing location}` and delete the `locations/{code}.txt` file we created in the step above.
+4. check if `locations/{code}.txt` already exists (pre-assigned location):
+   - If exists: verify the requested parcel-location matches the file contents. If mismatch, return JSON `{'status': 'error', 'message': 'Wrong location'}`. If match, continue to step 5.
+   - If not exists: atomic-add a new file `locations/{code}.txt` with the requested parcel-location. If this fails, we return the error as JSON `{'status': 'used', 'location': existing location}` where existing location is the location that was in the existing file that blocked us from doing the atomic-add.
+5. "atomic-add" the uploaded image file to the `parcels/` dir as {parcel-location}.png`. If this fails, we return JSON `{ status: 'taken', location: parcel-location}` and delete the `locations/{code}.txt` file only if we created it in step 4 (not if it was pre-assigned).
 6. If we get here, the image upload was successful. We return the parcel-location as JSON `{ status: 'success', location: parcel-location}`.
 
 #### public commands
@@ -186,6 +199,6 @@ These commands do not require any authorization.
 
 ##### command=`get-parcels`
 
-This command returns a list of all the parcel locations in the data directory. No params.
+This command returns a list of all claimed parcel locations (locations that have been assigned to codes). No params.
 
-We return a JSON array of all the used parcel locations in the data directory. 
+We read all files in the `locations/` directory and return a JSON array of unique parcel locations. This includes both locations that have images uploaded and locations that are claimed but not yet uploaded. 

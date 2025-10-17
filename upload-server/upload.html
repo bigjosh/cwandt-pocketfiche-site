@@ -54,6 +54,21 @@
         </p>
       </div>
       
+      <!-- Pre-assigned location map (only shown for claimed parcels) -->
+      <div id="claimed-map-section" class="hidden">
+        <h2>Step 2: Your Pre-Assigned Location</h2>
+        <div id="parcel-location-display">The parcel location <span id="parcel-location-value"></span> has been reserved for you. Press the button below to upload your image!</div>
+        
+        <!-- Map showing only the assigned parcel -->
+        <div style="margin: 20px 0;">
+          <canvas id="claimed-parcel-map" width="760" height="760" 
+                  style="width: 100%; height: auto; border: 2px solid #333; display: block;"></canvas>
+          <p style="font-size: 12px; color: #888; margin-top: 10px; text-align: center;">
+            <span style="color: #00cc00;">●</span> Your parcel
+          </p>
+        </div>
+      </div>
+      
       <!-- Location selection -->
       <div id="location-section" class="hidden">
         <h2>Step 2: Choose Parcel Location</h2>
@@ -70,12 +85,20 @@
           </p>
         </div>
         
-        <label for="parcel-location">Parcel Location</label>
+        <label for="parcel-location">Parcel Location (A1 is south-west corner)</label>
         <input type="text" id="parcel-location" name="parcel-location" 
                required placeholder="e.g., A1, B12, AL38" 
                pattern="[A-Z]{1,2}\d{1,2}" 
                style="text-transform: uppercase;" />
-        
+
+          <p style="font-size: 12px; color: #888; margin-top: 10px; text-align: center;">
+            You can also check out the <a href="/?nanes=true" target="_blank">zoomable parcel map</a> to find your favorite neighborhood.
+          </p>
+      </div>
+      
+      <!-- Upload button (shown after image is ready) -->
+      <div id="upload-button-section" class="hidden">
+        <h2>Step 3: Upload the Image to Your Parcel</h2>
         <div class="button-row">
           <button type="button" id="upload-btn">Upload Image</button>
         </div>
@@ -119,6 +142,7 @@
     const previewContainer = document.getElementById('preview-container');
     const previewCanvas = document.getElementById('preview-image');
     const locationSection = document.getElementById('location-section');
+    const uploadButtonSection = document.getElementById('upload-button-section');
     const parcelLocationInput = document.getElementById('parcel-location');
     const uploadBtn = document.getElementById('upload-btn');
     const uploadForm = document.getElementById('upload-form');
@@ -129,14 +153,22 @@
     const errorModalMessage = document.getElementById('error-modal-message');
     const errorModalClose = document.getElementById('error-modal-close');
     const parcelMapCanvas = document.getElementById('parcel-map');
+    const claimedMapSection = document.getElementById('claimed-map-section');
+    const claimedParcelMapCanvas = document.getElementById('claimed-parcel-map');
     
     let processedImageBlob = null;  // Store the processed image
     let availableParcels = new Set();  // Store available parcel locations
     let parcelMapData = null;  // Store parcel grid data for click detection
+    let isLocationPreAssigned = false;  // Track if location is already claimed/assigned
     
     // Constants for parcel grid
     const GRID_SIZE = 38;
     const LABEL_MAX_DISTANCE = 19;
+    
+    // Auto-uppercase parcel location input
+    parcelLocationInput.addEventListener('input', (e) => {
+      e.target.value = e.target.value.toUpperCase();
+    });
     
     // Convert 0-based index to Excel-style letters (A, B, ..., Z, AA, AB, ..., AL)
     function indexToLetters(idx) {
@@ -179,7 +211,8 @@
     }
     
     // Fetch list of taken parcels and draw the map
-    async function drawParcelMap() {
+    // If onlyShowLocation is provided, only that location will be shown as available (green)
+    async function drawParcelMap(canvas = parcelMapCanvas, onlyShowLocation = null) {
       try {
         // Fetch taken parcels
         const response = await fetch('cgi-bin/app.py?command=get-parcels');
@@ -190,8 +223,14 @@
           return;
         }
         
-        const takenParcels = new Set(data.parcels || []);
+        let takenParcels = new Set(data.parcels || []);
         const validParcels = buildValidParcels();
+        
+        // If onlyShowLocation is provided, treat all parcels as taken except that one
+        if (onlyShowLocation) {
+          takenParcels = new Set(validParcels);  // All valid parcels are "taken"
+          takenParcels.delete(onlyShowLocation);  // Except the claimed one
+        }
         
         // Calculate available parcels (valid but not taken)
         availableParcels.clear();
@@ -202,7 +241,6 @@
         }
         
         // Draw the grid
-        const canvas = parcelMapCanvas;
         const ctx = canvas.getContext('2d');
         const canvasSize = canvas.width;  // 760x760
         const cellSize = canvasSize / GRID_SIZE;  // ~20px per cell
@@ -322,7 +360,7 @@
           // Code not found or other error - not authorized
           document.body.innerHTML = '<div class="container"><h1>Not Authorized</h1><p>Invalid or expired access code.</p><p>Please <a href="https://help.kickstarter.com/hc/en-us/articles/360011239834-How-to-message-a-project-creator">message us on Kickstarter</a> if you think this is in error!</p></div>';
           return;
-        } else if (data.status === 'success') {
+        } else if (data.status === 'uploaded') {
           // Already uploaded - show success message with image
           uploadHeader.classList.add('hidden');
           const parcelLocation = data['parcel-location'];
@@ -336,6 +374,35 @@
           viewerLink.textContent = fullPathToParcel;
           
           successDisplay.classList.remove('hidden');
+          return;
+        } else if (data.status === 'claimed') {
+          // Location claimed but image not uploaded yet - show form with pre-filled location
+          const parcelLocation = data['parcel-location'];
+          parcelLocationInput.value = parcelLocation;
+          parcelLocationInput.disabled = true;
+          parcelLocationInput.style.backgroundColor = '#f0f0f0';
+          
+          // Set parcel location in display text
+          const parcelLocationValue = document.getElementById('parcel-location-value');
+          parcelLocationValue.textContent = parcelLocation;
+          parcelLocationValue.style.fontWeight = 'bold';
+          
+          // Add note about pre-assigned location
+          const locationNote = document.createElement('p');
+          locationNote.style.fontSize = '12px';
+          locationNote.style.color = '#666';
+          locationNote.style.marginTop = '5px';
+          locationNote.textContent = `This location has been pre-assigned to you.`;
+          parcelLocationInput.parentElement.appendChild(locationNote);
+          
+          // Show claimed map section with their parcel highlighted
+          claimedMapSection.classList.remove('hidden');
+          drawParcelMap(claimedParcelMapCanvas, parcelLocation);
+          
+          // Mark location as pre-assigned so we don't show location chooser
+          isLocationPreAssigned = true;
+          
+          uploadForm.classList.remove('hidden');
           return;
         } else if (data.status === 'free') {
           // Valid code, no upload yet - show upload form
@@ -467,12 +534,18 @@
             const previewCtx = previewCanvas.getContext('2d');
             previewCtx.putImageData(imageData, 0, 0);
             
-            // Show preview and location section
+            // Show preview
             previewContainer.classList.add('visible');
-            locationSection.classList.remove('hidden');
             
-            // Draw the parcel availability map
-            drawParcelMap();
+            // Only show location chooser if location is not pre-assigned
+            if (!isLocationPreAssigned) {
+              locationSection.classList.remove('hidden');
+              // Draw the parcel availability map
+              drawParcelMap();
+            }
+            
+            // Always show upload button once image is ready
+            uploadButtonSection.classList.remove('hidden');
             
           }, 'image/png');
           

@@ -36,6 +36,16 @@
       </p>
       
       <p>
+        <label for="parcel-location">Parcel Location (Optional)</label><br>
+        <input type="text" id="parcel-location" name="parcel-location" 
+               placeholder="e.g., A1, B12, AL38 (leave blank for new upload)" 
+               pattern="[A-Za-z]{1,2}\d{1,2}" 
+               />
+        <br>
+        <small style="color: red;">Use this to migrate existing claimed parcels</small>
+      </p>
+      
+      <p>
         <button type="submit" id="submit-btn">Generate Code</button>
       </p>
     </form>
@@ -115,6 +125,12 @@
         formData.append('admin-id', adminId);
         formData.append('backer-id', document.getElementById('backer-id').value.trim());
         formData.append('notes', document.getElementById('notes').value.trim());
+        
+        // Add optional parcel-location if provided
+        const parcelLocation = document.getElementById('parcel-location').value.trim().toUpperCase();
+        if (parcelLocation) {
+          formData.append('parcel-location', parcelLocation);
+        }
         
         // Send POST request
         const response = await fetch('cgi-bin/app.py', {
@@ -206,9 +222,10 @@
         html += '<tr>';
         html += `<th><a href="#" onclick="sortCodes('code'); return false;">Code ${sortField === 'code' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += `<th><a href="#" onclick="sortCodes('backer-id'); return false;">Backer ID ${sortField === 'backer-id' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
+        html += `<th><a href="#" onclick="sortCodes('admin-id'); return false;">Created By ${sortField === 'admin-id' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += '<th>Notes</th>';
-        html += '<th>Status</th>';
         html += `<th><a href="#" onclick="sortCodes('parcel-location'); return false;">Location ${sortField === 'parcel-location' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
+        html += `<th><a href="#" onclick="sortCodes('status'); return false;">Status ${sortField === 'status' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += '</tr>';
         
         allCodes.forEach(code => {
@@ -219,8 +236,8 @@
           html += `<td><b><a href="${uploadUrl}" target="_blank" rel="noopener">${code.code}</a></b></td>`;
           
           html += `<td>${code['backer-id']}</td>`;
+          html += `<td>${code['admin-id'] || ''}</td>`;
           html += `<td>${code.notes || ''}</td>`;
-          html += `<td>${code.status}</td>`;
           
           // Make parcel-location a link if it exists
           if (code['parcel-location']) {
@@ -230,6 +247,9 @@
           } else {
             html += `<td></td>`;
           }
+          
+          // Status last (shows if parcel image file exists)
+          html += `<td>${code.status}</td>`;
           
           html += '</tr>';
         });
