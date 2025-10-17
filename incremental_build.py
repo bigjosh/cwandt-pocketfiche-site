@@ -8,27 +8,263 @@ Works like a traditional build system (make/ninja):
 - Rebuild parent tiles when any child tile is newer
 
 Usage:
-  python incremental_build.py [--parcels-dir parcels] [--output-dir docs/world] [--force]
+  python incremental_build.py [--parcels-dir parcels] [--output-dir docs/world] [--init]
 """
 
 import argparse
+import math
+import shutil
 import sys
 from pathlib import Path
-from typing import Dict, Set, Tuple, Optional
-import shutil
-
-# Import the original build_world functions
-from build_world import (
-    TILE_SIZE, MAX_ZOOM, MIN_ZOOM, GRID_SIZE, OFFSET,
-    parse_parcel_filename, snap_to_black_or_white, create_label_tile,
-    create_tile_from_children, index_of_letter, letter_of_index
-)
+from typing import Optional
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageDraw, ImageFont
 except ImportError:
     print("Error: Pillow library required. Install with: pip install Pillow")
     sys.exit(1)
+
+
+# Constants
+TILE_SIZE = 500  # All tiles are 500x500 pixels
+MAX_ZOOM = 6     # Zoom level where parcels are 1:1 with tiles
+MIN_ZOOM = 0     # Zoom level with single tile covering entire world
+GRID_SIZE = 38   # World is 38x38 parcels
+LABEL_MAX_DISTANCE = 19  # Maximum Euclidean distance from center in parcels for label generation
+
+def get_grid_size_at_zoom(zoom: int) -> int:
+    """Get the number of tiles in each dimension at a given zoom level."""
+    return 2 ** zoom
+
+def index_of_letter(letters: str) -> int:
+    """Convert Excel-style letters to 0-based row index.
+    A->0, B->1, ..., Z->25, AA->26, AB->27, ..., AL->37
+    """
+    result = 0
+    for char in letters.upper():
+        result = (result * 26) + (ord(char) - ord('A') + 1)
+    return result - 1
+
+
+def letter_of_index(idx: int) -> str:
+    """Convert 0-based index to Excel-style letters.
+    0->A, 1->B, ..., 25->Z, 26->AA, 27->AB, ..., 37->AL
+    """
+    idx += 1  # Convert to 1-based
+    result = ''
+    while idx > 0:
+        idx -= 1
+        result = chr(ord('A') + (idx % 26)) + result
+        idx //= 26
+    return result
+
+
+def parcel_name(row: int, col: int) -> str:
+    """Generate a parcel label from row and column indices.
+    
+    Args:
+        row: 0-based row index (0=A, 37=AL)
+        col: 0-based col index (0=column 1, 37=column 38)
+        
+    Returns:
+        Parcel label string (e.g., "A1", "B12", "AL38")
+    """
+    return f"{letter_of_index(row)}{col + 1}"
+
+
+def maxzoom_tile_coords_to_parcel_coords(x: int, y: int) -> Optional[tuple[int, int]]:
+    """Convert tile coordinates to parcel grid coordinates.
+    
+    Handles the offset calculation to map from the 64x64 tile grid at MAX_ZOOM
+    to the centered 38x38 parcel grid.
+    
+    Args:
+        x: Tile x coordinate at MAX_ZOOM
+        y: Tile y coordinate at MAX_ZOOM
+        
+    Returns:
+        (row, col) tuple if within grid bounds, None otherwise
+    """
+    # Calculate offset inline: center the 38x38 parcel grid in the 64x64 tile grid
+    offset = (get_grid_size_at_zoom(MAX_ZOOM) - GRID_SIZE) // 2
+    
+    # Convert tile coordinates to parcel grid coordinates
+    col = x - offset
+    row = offset + (GRID_SIZE - 1) - y
+    
+    # Check bounds
+    if row < 0 or row >= GRID_SIZE or col < 0 or col >= GRID_SIZE:
+        return None
+    
+    return (row, col)
+
+
+
+# only called durring label gneration so dont sweat it
+def is_parcel_claimable_maxzoom_coords(x: int, y: int) -> Optional[str]:
+    """Check if a tile position at MAX_ZOOM corresponds to a claimable parcel.
+    
+    Takes tile coordinates and checks if the parcel is within the claimable
+    distance from center (within bounds and within LABEL_MAX_DISTANCE).
+    
+    Args:
+        x: Tile x coordinate at MAX_ZOOM
+        y: Tile y coordinate at MAX_ZOOM
+        
+    Returns:
+        Parcel label string if claimable, None otherwise
+    """
+    # Convert to parcel grid coordinates
+    coords = maxzoom_tile_coords_to_parcel_coords(x, y)
+    if coords is None:
+        return None
+    
+    row, col = coords
+    
+    # Calculate center of the 38x38 grid (0-based indexing)
+    center_row = (GRID_SIZE - 1) / 2  # 18.5
+    center_col = (GRID_SIZE - 1) / 2  # 18.5
+    
+    # Calculate Euclidean distance from center
+    distance = math.sqrt((row - center_row) ** 2 + (col - center_col) ** 2)
+    
+    # Skip tiles that are too far from center (not claimable)
+    if distance > LABEL_MAX_DISTANCE:
+        return None
+
+    # Generate and return the parcel label
+    return parcel_name(row, col)
+
+
+def create_transparent_tile() -> Image.Image:
+    """Create a 1x1 transparent pixel image."""
+    return Image.new('RGBA', (1, 1), (0, 0, 0, 0))
+
+def get_placeholder_pixel_path(output_dir: Path) -> Path:
+    """Get path to the placeholder pixel file."""
+    return output_dir / "placeholder_pixel.png"
+
+def generate_placeholder_pixel_file(output_dir: Path) -> None:
+    """Generate a 1x1 transparent PNG with smallest possible file size."""
+    placeholder_path = get_placeholder_pixel_path(output_dir)
+    placeholder_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Create 1x1 transparent pixel and save as optimized PNG
+    img = create_transparent_tile()
+    img.save(placeholder_path, 'PNG', optimize=True)    
+
+
+def maxzoom_tile_coords_to_label(x: int, y: int) -> Optional[str]:
+    """Convert 0-based tile x,y coords into a parcel label taking into account the offset.
+    
+    Returns the label if the coords are within the grid bounds, else None.
+    Does not check distance from center - use is_parcel_claimable_maxzoom_coords for that.
+    """
+    # Convert to parcel grid coordinates
+    coords = maxzoom_tile_coords_to_parcel_coords(x, y)
+    if coords is None:
+        return None
+    
+    row, col = coords
+    return parcel_name(row, col)    
+
+
+def create_label_tile_maxzoom(label: str) -> Image.Image:
+    """Create a transparent tile with parcel label and grid lines at MAX_ZOOM.
+    
+    Args:
+        label: Parcel label string (e.g., "A1", "B12", "AL38")
+    
+    Returns:
+        PIL Image with transparent background, green grid lines, and blue label text
+    """
+    # Create transparent image
+    img = Image.new('RGBA', (TILE_SIZE, TILE_SIZE), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    
+    # Draw grid border (green, semi-transparent)
+    grid_color = (19, 211, 61, 128)  # rgba(19, 211, 61, 0.5)
+    border_width = 1
+    draw.rectangle(
+        [(0, 0), (TILE_SIZE - 1, TILE_SIZE - 1)],
+        outline=grid_color,
+        width=border_width
+    )
+    
+    # Calculate font size: 25% of tile size
+    # remember that the longest label is AL38 which is 4 letters long
+    font_size = int(TILE_SIZE * 0.25)
+    
+    # Try to load a bold font, fall back to default
+    try:
+        # Try Impact font (thick and blocky, like in CSS)
+        font = ImageFont.truetype("impact.ttf", font_size)
+    except:
+        try:
+            # Fall back to Arial Bold
+            font = ImageFont.truetype("arialbd.ttf", font_size)
+        except:
+            # Use default font with larger size
+            font = ImageFont.load_default()
+    
+    # Draw text centered (blue, full opacity - opacity will be controlled by layer)
+    text_color = (0, 0, 255, 255)  # rgba(0, 0, 255, 1.0) -> full opacity
+    
+    # Use anchor='mm' (middle-middle) to center both horizontally and vertically
+    center_x = TILE_SIZE / 2
+    center_y = TILE_SIZE / 2
+    
+    draw.text((center_x, center_y), label, fill=text_color, font=font, anchor='mm')
+    
+    return img
+
+
+def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Image.Image:
+    """Create a tile by combining and scaling 4 child tiles from zoom+1.
+    
+    Returns:
+        PIL Image
+    """
+    child_zoom = zoom + 1
+    child_zoom_dir = zoom_dir.parent / str(child_zoom)
+    
+    # Each tile at zoom Z corresponds to 4 tiles at zoom Z+1
+    child_tiles = []
+    for dy in range(2):
+        row = []
+        for dx in range(2):
+            child_x = x * 2 + dx
+            child_y = y * 2 + dy
+            
+            child_path = child_zoom_dir / str(child_x) / f"{child_y}.png"
+            if not child_path.exists():
+                raise Exception(f"Child tile {child_path} does not exist")
+
+            row.append(Image.open(child_path))
+        
+        child_tiles.append(row)
+    
+    # # Check if all children are empty (transparent)
+    # all_empty = all(
+    #     img.getbbox() is None 
+    #     for row in child_tiles 
+    #     for img in row
+    # )
+    # if all_empty:
+    #     return None
+    
+    # TODO: MAYBE HERE WE COULD CHECK IF THE 4 child tiles are placeholders and then use the placeholder for this tile too maybe it will be smaller?
+
+    # Combine 4 tiles into one 1000x1000 image
+    combined = Image.new('RGBA', (TILE_SIZE * 2, TILE_SIZE * 2), (0, 0, 0, 0))
+    for dy in range(2):
+        for dx in range(2):
+            combined.paste(child_tiles[dy][dx], (dx * TILE_SIZE, dy * TILE_SIZE))
+    
+    # Scale down to TILE_SIZE x TILE_SIZE using high-quality resampling (anti-aliasing)
+    scaled = combined.resize((TILE_SIZE, TILE_SIZE), Image.Resampling.LANCZOS)
+            
+    return scaled
 
 
 def get_mtime(filepath: Path) -> float:
@@ -39,260 +275,297 @@ def get_mtime(filepath: Path) -> float:
         return 0.0
 
 
-def is_tile_out_of_date_zoom_6(parcel_path: Path, tile_path: Path) -> bool:
-    """Check if zoom 6 tile needs rebuilding based on parcel timestamp."""
-    parcel_mtime = get_mtime(parcel_path)
-    tile_mtime = get_mtime(tile_path)
+def is_file_newer_than(source_path: Path, destination_path: Path) -> bool:
+    source_mtime = get_mtime(source_path)
+    destination_mtime = get_mtime(destination_path)
     
-    # Rebuild if tile doesn't exist or parcel is newer
-    return tile_mtime == 0.0 or parcel_mtime > tile_mtime
+    return source_mtime > destination_mtime
 
 
-def get_child_tile_paths(zoom: int, x: int, y: int, output_dir: Path, layer: str) -> list:
-    """Get paths to the 4 child tiles for a given parent tile."""
+def incremental_update_image_tile_at_maxzoom(x: int, y: int, parcels_dir: Path, output_dir: Path) -> bool:
+    """Rebuild a single image tile at MAX_ZOOM if needed. Returns true if the tile was rebuilt.
+    
+    Checks if parcel exists for the tile position. If not, uses transparent pixel.
+    If parcel exists, checks if it's newer than the tile and rebuilds if needed.
+    
+    Args:
+        x: Tile x coordinate at MAX_ZOOM
+        y: Tile y coordinate at MAX_ZOOM
+        parcels_dir: Path to directory containing parcel PNG files
+        output_dir: Root output directory
+        
+    Returns:
+        True if tile was rebuilt, False if skipped (up to date)
+    """
+    # Get parcel label for this tile position (accounts for offset)
+    parcel_name = maxzoom_tile_coords_to_label(x, y)
+    
+    # Determine source file: either parcel or placeholder pixel
+    if parcel_name is None:
+        parcel_path = get_placeholder_pixel_path(output_dir)
+    else:
+        parcel_path = parcels_dir / f"{parcel_name}.png"
+        if not parcel_path.exists():
+            parcel_path = get_placeholder_pixel_path(output_dir)
+    
+    image_tile_path = output_dir / "images" / str(MAX_ZOOM) / str(x) / f"{y}.png"
+
+    # is source newer than target?
+    needs_rebuild = is_file_newer_than(parcel_path, image_tile_path)
+    
+    if needs_rebuild:
+        # Save image tile
+        image_dir = output_dir / "images" / str(MAX_ZOOM) / str(x)
+        image_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Use copy2 to preserve source file timestamp
+        shutil.copy2(parcel_path, image_tile_path)
+        
+        return True
+    
+    return False
+
+
+def incrementral_update_all_image_tiles_as_maxzoom(parcels_dir: Path, output_dir: Path):
+    """Scan all tiles at MAX_ZOOM and rebuild those that are out of date.
+    
+    Iterates through all 64x64 tiles at zoom 6 (MAX_ZOOM). For each tile,
+    calls incremental_update_image_tile_at_maxzoom to check if rebuild is needed
+    and tracks total tiles processed and how many were rebuilt.
+    
+    Args:
+        parcels_dir: Path to directory containing parcel PNG files
+        output_dir: Root output directory
+    """
+    rebuilt_count = 0
+    skipped_count = 0   
+    
+    tiles_at_maxzoom = get_grid_size_at_zoom(MAX_ZOOM)  # 64x64 tiles at zoom 6
+    
+    for x in range(tiles_at_maxzoom):
+        for y in range(tiles_at_maxzoom):
+            if incremental_update_image_tile_at_maxzoom(x, y, parcels_dir, output_dir):
+                rebuilt_count += 1
+            else:
+                skipped_count += 1
+    
+    total_processed = rebuilt_count + skipped_count
+    print(f"   Processed: {total_processed}, Rebuilt: {rebuilt_count}, Up-to-date: {skipped_count}")
+    
+    
+
+def rebuild_tile_at_zoom(zoom: int, x: int, y: int, layer_root: Path):
+    """Rebuild a single tile at given zoom level by combining children.
+    
+    Always creates a tile (even if transparent) to ensure all tiles exist at all zoom levels.
+    This prevents 404 errors that would be cached by Leaflet.
+    
+    Args:
+        zoom: Zoom level to rebuild
+        x: Tile x coordinate
+        y: Tile y coordinate
+        layer_root: Root path of the layer (e.g., output_dir / "images" or output_dir / "labels")
+    """
+    zoom_dir = layer_root / str(zoom)
+    tile = create_tile_from_children(zoom, x, y, zoom_dir)
+    
+    tile_dir = zoom_dir / str(x)
+    tile_dir.mkdir(parents=True, exist_ok=True)
+    tile_path = tile_dir / f"{y}.png"
+    tile.save(tile_path, 'PNG')
+
+def incremental_update_tile_at_zoom(zoom: int, x: int, y: int, layer_root: Path) -> bool:
+    """Rebuild a tile at given zoom level only if any child tile is newer.
+    
+    Checks timestamps of all 4 child tiles and rebuilds parent tile only if
+    at least one child is newer than the parent.
+    
+    Args:
+        zoom: Zoom level to rebuild
+        x: Tile x coordinate
+        y: Tile y coordinate
+        layer_root: Root path of the layer (e.g., output_dir / "images" or output_dir / "labels")
+        
+    Returns:
+        True if tile was rebuilt, False if skipped (up to date)
+    """
+    # Get parent tile path
+    parent_path = layer_root / str(zoom) / str(x) / f"{y}.png"
+    parent_mtime = get_mtime(parent_path)
+    
+    # Check all 4 child tiles
     child_zoom = zoom + 1
-    child_zoom_dir = output_dir / layer / str(child_zoom)
+    needs_rebuild = False
     
-    paths = []
     for dy in range(2):
         for dx in range(2):
             child_x = x * 2 + dx
             child_y = y * 2 + dy
-            paths.append(child_zoom_dir / str(child_x) / f"{child_y}.png")
+            child_path = layer_root / str(child_zoom) / str(child_x) / f"{child_y}.png"
+            
+            child_mtime = get_mtime(child_path)
+            if child_mtime > parent_mtime:
+                needs_rebuild = True
+                break
+        if needs_rebuild:
+            break
     
-    return paths
-
-
-def is_tile_out_of_date(zoom: int, x: int, y: int, output_dir: Path, layer: str) -> bool:
-    """Check if tile needs rebuilding based on child tile timestamps."""
-    tile_path = output_dir / layer / str(zoom) / str(x) / f"{y}.png"
-    tile_mtime = get_mtime(tile_path)
-    
-    # If tile doesn't exist, check if any children exist
-    if tile_mtime == 0.0:
-        child_paths = get_child_tile_paths(zoom, x, y, output_dir, layer)
-        # Rebuild if any child exists
-        return any(get_mtime(p) > 0.0 for p in child_paths)
-    
-    # Tile exists, check if any child is newer
-    child_paths = get_child_tile_paths(zoom, x, y, output_dir, layer)
-    max_child_mtime = max(get_mtime(p) for p in child_paths)
-    
-    return max_child_mtime > tile_mtime
-
-
-def create_transparent_tile() -> Image.Image:
-    """Create a 1x1 transparent pixel image."""
-    return Image.new('RGBA', (1, 1), (0, 0, 0, 0))
-
-
-def load_parcel_or_transparent(filepath: Optional[Path]) -> Image.Image:
-    """Load and process a parcel image, or return transparent pixel if missing.
-    
-    Args:
-        filepath: Path to parcel file, or None for missing parcel
-        
-    Returns:
-        PIL Image (either loaded parcel or 1x1 transparent pixel)
-    """
-    if filepath is None or not filepath.exists():
-        # Missing parcel - return transparent pixel
-        return create_transparent_tile()
-    
-    try:
-        img = Image.open(filepath)
-        if img.size != (TILE_SIZE, TILE_SIZE):
-            print(f"⚠️  Warning: {filepath.name} is {img.size}, expected {TILE_SIZE}x{TILE_SIZE}")
-        img = img.convert('RGBA')
-        img = snap_to_black_or_white(img)
-        return img
-    except Exception as e:
-        print(f"❌ Failed to load {filepath.name}: {e}, using transparent pixel")
-        return create_transparent_tile()
-
-
-def rebuild_tile_at_zoom_6(row: int, col: int, parcel_img: Image.Image, output_dir: Path, is_empty: bool = False) -> Tuple[Path, Path]:
-    """Rebuild a single tile at zoom level 6. Returns paths to created tiles.
-    
-    Args:
-        row: Grid row position
-        col: Grid column position
-        parcel_img: Parcel image (or transparent pixel if empty)
-        output_dir: Output directory
-        is_empty: True if this is an empty/missing parcel location
-    """
-    tile_x = col + OFFSET
-    tile_y = OFFSET + (GRID_SIZE - 1) - row
-    
-    # Save image tile
-    image_dir = output_dir / "images" / "6" / str(tile_x)
-    image_dir.mkdir(parents=True, exist_ok=True)
-    image_path = image_dir / f"{tile_y}.png"
-    parcel_img.save(image_path, 'PNG')
-    
-    # Save label tile
-    label_img = create_label_tile(row, col, zoom=MAX_ZOOM)
-    label_dir = output_dir / "labels" / "6" / str(tile_x)
-    label_dir.mkdir(parents=True, exist_ok=True)
-    label_path = label_dir / f"{tile_y}.png"
-    label_img.save(label_path, 'PNG')
-    
-    return image_path, label_path
-
-
-def rebuild_tile_at_zoom(zoom: int, x: int, y: int, output_dir: Path, layer: str) -> bool:
-    """Rebuild a single tile at given zoom level by combining children."""
-    zoom_dir = output_dir / layer / str(zoom)
-    tile = create_tile_from_children(zoom, x, y, zoom_dir)
-    
-    if tile is not None:
-        tile_dir = zoom_dir / str(x)
-        tile_dir.mkdir(parents=True, exist_ok=True)
-        tile_path = tile_dir / f"{y}.png"
-        tile.save(tile_path, 'PNG')
+    if needs_rebuild:
+        rebuild_tile_at_zoom(zoom, x, y, layer_root)
         return True
+    
     return False
 
-
-def get_all_tile_coords_at_zoom(zoom: int) -> Set[Tuple[int, int]]:
-    """Get all possible tile coordinates at a given zoom level."""
-    tiles_at_zoom = 2 ** zoom
-    coords = set()
-    for x in range(tiles_at_zoom):
-        for y in range(tiles_at_zoom):
-            coords.add((x, y))
-    return coords
-
-
-def incremental_build(parcels_dir: Path, output_dir: Path, force: bool = False):
-    """Perform timestamp-based incremental build of world tiles."""
+def incremental_update_all_tiles_at_zoom(zoom: int, layer_root: Path):
+    """Incrementally update all tiles at given zoom level by checking child timestamps.
     
-    print("╔════════════════════════════════════════════════════════════╗")
-    print("║  Incremental World Tile Builder (Timestamp-based)        ║")
-    print("╚════════════════════════════════════════════════════════════╝")
-    print()
-    
-    if force:
-        print("🔄 Force rebuild requested - regenerating all tiles")
-        print()
-        # Clear output directory
-        if output_dir.exists():
-            shutil.rmtree(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Run full build
-        from build_world import load_parcels, build_pyramid, build_label_pyramid
-        
-        parcels = load_parcels(parcels_dir)
-        if not parcels:
-            print("❌ No parcel images found!")
-            return 1
-        
-        build_pyramid(parcels, output_dir)
-        build_label_pyramid(output_dir)
-        
-        print("\n✅ Full build complete")
-        return 0
-    
-    # Create output directory if needed
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Phase 1: Build zoom 6 tiles (check all grid positions)
-    print(f"🔨 Phase 1: Zoom level {MAX_ZOOM} (checking all {GRID_SIZE}x{GRID_SIZE} positions)...")
-    
+    Args:
+        zoom: Zoom level to rebuild
+        layer_root: Root path of the layer (e.g., output_dir / "images" or output_dir / "labels")
+    """
+    tiles_at_zoom = get_grid_size_at_zoom(zoom)
     rebuilt_count = 0
     skipped_count = 0
-    missing_parcel_count = 0
     
-    # Build map of existing parcels
-    parcel_map: Dict[Tuple[int, int], Path] = {}
-    for parcel_path in parcels_dir.glob("*.png"):
-        coords = parse_parcel_filename(parcel_path.name)
-        if coords:
-            parcel_map[coords] = parcel_path
-    
-    print(f"   Found {len(parcel_map)} parcel files")
-    
-    # Check all positions in the grid
-    for row in range(GRID_SIZE):
-        for col in range(GRID_SIZE):
-            tile_x = col + OFFSET
-            tile_y = OFFSET + (GRID_SIZE - 1) - row
-            
-            # Check both image and label tiles
-            image_tile_path = output_dir / "images" / "6" / str(tile_x) / f"{tile_y}.png"
-            label_tile_path = output_dir / "labels" / "6" / str(tile_x) / f"{tile_y}.png"
-            
-            # Get parcel path (None if missing)
-            parcel_path = parcel_map.get((row, col))
-            
-            # Determine if rebuild is needed
-            # For missing parcels, we use mtime of 0, so tiles only rebuild if they don't exist
-            if parcel_path:
-                image_needs_rebuild = is_tile_out_of_date_zoom_6(parcel_path, image_tile_path)
-                label_needs_rebuild = is_tile_out_of_date_zoom_6(parcel_path, label_tile_path)
-            else:
-                # Missing parcel - only rebuild if tiles don't exist
-                image_needs_rebuild = not image_tile_path.exists()
-                label_needs_rebuild = not label_tile_path.exists()
-            
-            if image_needs_rebuild or label_needs_rebuild:
-                # Load parcel or use transparent pixel
-                parcel_img = load_parcel_or_transparent(parcel_path)
-                rebuild_tile_at_zoom_6(row, col, parcel_img, output_dir)
+    for x in range(tiles_at_zoom):
+        for y in range(tiles_at_zoom):
+            if incremental_update_tile_at_zoom(zoom, x, y, layer_root):
                 rebuilt_count += 1
-                if parcel_path is None:
-                    missing_parcel_count += 1
             else:
                 skipped_count += 1
     
-    print(f"   Rebuilt: {rebuilt_count} (including {missing_parcel_count} empty), Up-to-date: {skipped_count}")
+    total_processed = rebuilt_count + skipped_count
+    print(f"   Processed: {total_processed}, Rebuilt: {rebuilt_count}, Up-to-date: {skipped_count}")
+
+
+def rebuild_all_tiles_at_zoom(zoom: int, layer_root: Path): 
+    """Rebuild all tiles at given zoom level by combining children.
+    
+    Args:
+        zoom: Zoom level to rebuild
+        layer_root: Root path of the layer (e.g., output_dir / "images" or output_dir / "labels")
+    """  
+    tiles_at_zoom = get_grid_size_at_zoom(zoom)
+    created_count = 0
+    
+    for x in range(tiles_at_zoom):
+        for y in range(tiles_at_zoom):
+            rebuild_tile_at_zoom(zoom, x, y, layer_root)
+            created_count += 1
+
+    print(f"   Created {created_count} tiles at zoom level {zoom}")
+
+
+def incremental_update_tiles_at_all_zooms(layer_root: Path):
+    """Incrementally update tiles at all zoom levels from MAX_ZOOM-1 down to MIN_ZOOM.
+    
+    Only rebuilds tiles whose children have changed (timestamp-based).
+    Assumes tiles at max zoom are built and valid.
+    
+    Args:
+        layer_root: Root path of the layer (e.g., output_dir / "images" or output_dir / "labels")
+    """
+    for zoom in range(MAX_ZOOM - 1, MIN_ZOOM - 1, -1):
+        print(f"🔨 Zoom level {zoom}...")
+        incremental_update_all_tiles_at_zoom(zoom, layer_root)
+
+
+def rebuild_tiles_at_all_zooms(layer_root: Path):
+    """Rebuild tiles at all zoom levels from MAX_ZOOM-1 down to MIN_ZOOM.
+    
+    Unconditionally rebuilds all tiles (used for --init).
+    Assumes tiles at max zoom are built and valid.
+    
+    Args:
+        layer_root: Root path of the layer (e.g., output_dir / "images" or output_dir / "labels")
+    """
+    for zoom in range(MAX_ZOOM - 1, MIN_ZOOM - 1, -1):
+        print(f"🔨 Zoom level {zoom}...")
+        rebuild_all_tiles_at_zoom(zoom, layer_root)
+
+def generate_labels_maxzoom(output_dir: Path):
+    """Generate labels for zoom level MAX_ZOOM.
+    
+    Iterates through all 64x64 tiles at zoom 6. For each tile:
+    - If it corresponds to a claimable parcel position, create label tile
+    - Otherwise, create transparent pixel tile
+    """
+    tiles_at_maxzoom = get_grid_size_at_zoom(MAX_ZOOM)  # 64   
+    labels_created = 0
+    transparent_created = 0
+    
+    for x in range(tiles_at_maxzoom):
+        for y in range(tiles_at_maxzoom):
+            label_dir = output_dir / "labels" / str(MAX_ZOOM) / str(x)
+            label_dir.mkdir(parents=True, exist_ok=True)
+            label_path = label_dir / f"{y}.png"
+            
+            # Check if this position is claimable and get label
+            parcel_name = is_parcel_claimable_maxzoom_coords(x, y)
+            if parcel_name:
+                # Create label tile with text and grid for claimable parcel
+                label_img = create_label_tile_maxzoom(parcel_name)
+                label_img.save(label_path, 'PNG')
+                labels_created += 1
+            else:
+                # Copy placeholder pixel file for non-claimable positions
+                placeholder_path = get_placeholder_pixel_path(output_dir)
+                shutil.copy(placeholder_path, label_path)
+                transparent_created += 1
+    
+    print(f"   Created {labels_created} label tiles and {transparent_created} transparent tiles")
+
+
+def init_output_dir(output_dir: Path):
+    """Initialize output directory, clearing all existing tiles and rebuilding from scratch."""
+
+
+    print("🔨 Purging output directory...")
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # we will use this to fill in any MAXZOOM tile that does not have a proper source,
+    # so either an image tile that no parcel exists for, or a label tile for non-claimable parcels
+    print("🔨 Generating placeholder pixel file...")
+    generate_placeholder_pixel_file(output_dir)
+    
+    # note that we do not need to explicitly rebuild the labels tree here since we deleted the output dir so all
+    # the labels will anturally get rebuilt
+    
+    print("🏷️  Building labels tree...")
+    print()
+    generate_labels_maxzoom(output_dir)
+    labels_root = output_dir / "labels"
+
+    # this works becuase we purged the directory above so all tiles will be rebuilt
+    incremental_update_tiles_at_all_zooms(labels_root)
+    print()
+    print("✅ Labels tree complete")
+    print()
+
+def incremental_build(parcels_dir: Path, output_dir: Path):
+    """Perform timestamp-based incremental build of world tiles."""
+    
+    print("╔════════════════════════════════════════════════════════════╗")
+    print("║  Incremental World Tile Builder (Timestamp-based)          ║")
+    print("╚════════════════════════════════════════════════════════════╝")
+    print()
+        
+    # test if output dir exists, if not tell user to run --init    
+    if not output_dir.exists():
+        print("❌ Output directory does not exist. Please run --init first.")
+        sys.exit(1)
+    
+    # Phase 1: Build maxzoom images (check all tile positions)
+    print(f"🔨 Phase 1: Zoom level {MAX_ZOOM} ...")
+    incrementral_update_all_image_tiles_as_maxzoom(parcels_dir, output_dir)
+    # todo return the list of cahnged tiles from each call so we can do a more selective rebuild of the lower zooms
     print()
     
     # Phase 2: Build zoom levels 5 down to 0 (check child timestamps)
-    for zoom in range(MAX_ZOOM - 1, MIN_ZOOM - 1, -1):
-        print(f"🔨 Phase 2: Zoom level {zoom} (checking child timestamps)...")
-        
-        rebuilt_images = 0
-        rebuilt_labels = 0
-        skipped_images = 0
-        skipped_labels = 0
-        
-        # Check all possible tiles at this zoom level
-        tiles_at_zoom = 2 ** zoom
-        
-        for x in range(tiles_at_zoom):
-            for y in range(tiles_at_zoom):
-                # Check if image tile needs rebuild
-                if is_tile_out_of_date(zoom, x, y, output_dir, "images"):
-                    if rebuild_tile_at_zoom(zoom, x, y, output_dir, "images"):
-                        rebuilt_images += 1
-                else:
-                    # Only count as skipped if the tile exists
-                    image_tile_path = output_dir / "images" / str(zoom) / str(x) / f"{y}.png"
-                    if image_tile_path.exists():
-                        skipped_images += 1
-                
-                # Check if label tile needs rebuild
-                if is_tile_out_of_date(zoom, x, y, output_dir, "labels"):
-                    if rebuild_tile_at_zoom(zoom, x, y, output_dir, "labels"):
-                        rebuilt_labels += 1
-                else:
-                    # Only count as skipped if the tile exists
-                    label_tile_path = output_dir / "labels" / str(zoom) / str(x) / f"{y}.png"
-                    if label_tile_path.exists():
-                        skipped_labels += 1
-        
-        print(f"   Images - Rebuilt: {rebuilt_images}, Up-to-date: {skipped_images}")
-        print(f"   Labels - Rebuilt: {rebuilt_labels}, Up-to-date: {skipped_labels}")
-        print()
-    
-    total_rebuilt = rebuilt_count + sum([rebuilt_images, rebuilt_labels])
-    
-    if rebuilt_count == 0 and total_rebuilt == 0:
-        print("✅ All tiles are up-to-date!")
-    else:
-        print(f"✅ Incremental build complete! ({total_rebuilt} tiles rebuilt)")
+    images_root = output_dir / "images"
+    incremental_update_tiles_at_all_zooms(images_root)
     
     return 0
 
@@ -312,9 +585,9 @@ def main() -> int:
         help='Output directory for tile pyramid (default: docs/world)'
     )
     parser.add_argument(
-        '--force',
+        '--init',
         action='store_true',
-        help='Force full rebuild, clearing all existing tiles'
+        help='Initialize output directory, clearing all existing tiles and rebuilding from scratch'
     )
     
     args = parser.parse_args()
@@ -322,7 +595,10 @@ def main() -> int:
     parcels_dir = Path(args.parcels_dir)
     output_dir = Path(args.output_dir)
     
-    return incremental_build(parcels_dir, output_dir, args.force)
+    if args.init:
+        init_output_dir(output_dir)
+    
+    return incremental_build(parcels_dir, output_dir)
 
 
 if __name__ == '__main__':
