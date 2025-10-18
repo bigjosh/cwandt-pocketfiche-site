@@ -164,6 +164,44 @@ def atomic_add_file(file_path: Path, content: str) -> Tuple[bool, Optional[str]]
         raise
 
 
+def atomic_replace_file(file_path: Path, content: str) -> None:
+    """Atomically replace a file's contents (or create if doesn't exist).
+    
+    Uses write-to-temp-then-rename pattern to ensure atomicity.
+    The file is never missing during the operation.
+    
+    Args:
+        file_path: Target file path
+        content: Content to write
+    """
+    # Ensure parent directory exists
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Create temp file in same directory (ensures same filesystem for atomic rename)
+    fd, temp_path = tempfile.mkstemp(dir=file_path.parent, text=True)
+    temp_path = Path(temp_path)
+    
+    try:
+        # Write content to temp file via file descriptor
+        os.write(fd, content.encode('utf-8'))
+        os.close(fd)
+        
+        # Atomically replace target file with temp file
+        # os.replace() is guaranteed to be atomic on both Unix and Windows
+        # and will overwrite the target if it exists
+        temp_path.replace(file_path)
+        
+    except Exception as e:
+        # Clean up temp file if it exists
+        try:
+            os.close(fd)
+        except:
+            pass
+        if temp_path.exists():
+            temp_path.unlink()
+        raise
+
+
 def atomic_add_binary_file(file_path: Path, content: bytes) -> Tuple[bool, bool]:
     """Atomically add a binary file. Returns (success, file_existed).
     
@@ -351,24 +389,24 @@ def handle_generate_code(form_data: dict, data_dir: Path) -> Tuple[str, list, by
     # Check admin authorization
     admin_id = form_data.get('admin-id', [''])[0]
     if not check_admin_auth(admin_id, data_dir):
-        return send_error('Not authorized', 403)
+        return send_json({'status': 'error', 'message': 'Not authorized', 'code': 401})
     
-    # Get backer-id (required)
+    # Get POST parameters
     backer_id = form_data.get('backer-id', [''])[0].strip()
-    if not backer_id:
-        return send_error('Backer ID is required')
-    
-    # Get optional notes
     notes = form_data.get('notes', [''])[0].strip()
-    
-    # Get optional parcel-location
     parcel_location = form_data.get('parcel-location', [''])[0].strip().upper()
-    if parcel_location and not validate_parcel_location(parcel_location):
-        return send_error('Invalid parcel location')
     
-    # Generate unique code
-    max_attempts = 100
-    for attempt in range(max_attempts):
+    if not backer_id:
+        return send_json({'status': 'error', 'message': 'backer-id required', 'code': 400})
+    
+    # If parcel-location specified, validate it
+    if parcel_location:
+        if not validate_parcel_location(parcel_location):
+            return send_json({'status': 'error', 'message': 'Invalid parcel location'})
+    
+    # Generate code and try to save it
+    # Try up to 10 times in case of collision (very unlikely)
+    for _ in range(10):
         code = generate_code()
         access_file = data_dir / 'access' / f'{code}.txt'
         
@@ -391,15 +429,18 @@ def handle_generate_code(form_data: dict, data_dir: Path) -> Tuple[str, list, by
             content = f"{backer_id}\n{admin_name}\n{notes}"
             access_file.write_text(content, encoding='utf-8')
             
-            # If parcel location specified, pre-assign it
+            # If parcel location specified, save it to locations/{code}.txt
+            # Use atomic replace to allow overwrites for migration/re-assignment
             if parcel_location:
                 location_file = data_dir / 'locations' / f'{code}.txt'
-                location_file.parent.mkdir(parents=True, exist_ok=True)
-                location_file.write_text(parcel_location, encoding='utf-8')
+                try:
+                    atomic_replace_file(location_file, parcel_location)
+                except Exception as e:
+                    return send_json({'status': 'error', 'message': f'Failed to save location: {e}'})
             
             return send_json({'status': 'success', 'code': code})
     
-    return send_error('Failed to generate unique code after maximum attempts')
+    return send_json({'status': 'error', 'message': 'Failed to generate unique code'})
 
 
 def handle_get_codes(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]:
@@ -407,7 +448,7 @@ def handle_get_codes(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]
     # Check admin authorization
     admin_id = form_data.get('admin-id', [''])[0]
     if not check_admin_auth(admin_id, data_dir):
-        return send_error('Not authorized', 403)
+        return send_json({'status': 'error', 'message': 'Not authorized', 'code': 401})
     
     # Read all access files
     access_dir = data_dir / 'access'
@@ -458,40 +499,54 @@ def handle_get_parcel(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes
     # Get code parameter
     code = form_data.get('code', [''])[0].strip()
     if not code:
-        return send_error('Not authorized')
+        return send_json({'status': 'error', 'message': 'code not found'})
     
-    # Check if code exists
+    # Check if code exists in access directory
     access_file = data_dir / 'access' / f'{code}.txt'
     if not access_file.exists():
-        return send_error('Not authorized')
+        return send_json({'status': 'error', 'message': 'code not found'})
     
-    # Check if location file exists
+    # Check if this code has a location assigned
     location_file = data_dir / 'locations' / f'{code}.txt'
     if not location_file.exists():
-        return send_json({'status': 'free'})
+        return send_json({'status': 'free', 'message': 'no location assigned'})
     
+    # Get the parcel location
     parcel_location = location_file.read_text(encoding='utf-8').strip()
     
-    # Check if parcel image exists
+    # Check if actual parcel image file exists
     parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
     if parcel_file.exists():
+        # Image has been uploaded
         return send_json({'status': 'uploaded', 'parcel-location': parcel_location})
     else:
+        # Location claimed but image not uploaded yet
         return send_json({'status': 'claimed', 'parcel-location': parcel_location})
 
 
 def handle_get_parcels(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]:
-    """Handle get-parcels command (public)."""
-    parcels_dir = data_dir / 'parcels'
-    if not parcels_dir.exists():
-        return send_json({'status': 'success', 'parcels': []})
+    """Handle get-parcels command (public).
     
-    # Get list of claimed locations
-    claimed_locations = []
-    for parcel_file in parcels_dir.glob('*.png'):
-        location = parcel_file.stem
-        claimed_locations.append(location)
+    Returns a list of all claimed parcel locations (locations assigned to codes).
+    No authorization required.
+    """
+    locations_dir = data_dir / 'locations'
     
+    # Use a set to ensure each location only appears once
+    claimed_locations = set()
+    
+    if locations_dir.exists():
+        for location_file in locations_dir.glob('*.txt'):
+            # Read the parcel location from the file
+            try:
+                location = location_file.read_text(encoding='utf-8').strip()
+                if location:
+                    claimed_locations.add(location)
+            except Exception:
+                # Skip files that can't be read
+                continue
+    
+    # Return JSON array of claimed parcel locations (sorted for consistency)
     return send_json({'status': 'success', 'parcels': sorted(claimed_locations)})
 
 
@@ -500,25 +555,25 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
     # Get code parameter
     code = form_data.get('code', [''])[0].strip()
     if not code:
-        return send_error('Not authorized')
+        return send_json({'status': 'error', 'message': 'Not authorized'})
     
     # Check if code exists in access directory
     access_file = data_dir / 'access' / f'{code}.txt'
     if not access_file.exists():
-        return send_error('Not authorized')
+        return send_json({'status': 'error', 'message': 'Not authorized'})
     
     # Get parcel location
     parcel_location = form_data.get('parcel-location', [''])[0].strip()
     if not parcel_location:
-        return send_error('Invalid location')
+        return send_json({'status': 'error', 'message': 'Invalid location'})
     
     # Validate parcel location format
     if not validate_parcel_location(parcel_location):
-        return send_error('Invalid parcel location')
+        return send_json({'status': 'error', 'message': 'Invalid parcel location'})
     
-    # Get image data
+    # Get image data from form
     if 'image' not in file_data:
-        return send_error('No image provided')
+        return send_json({'status': 'error', 'message': 'No image provided'})
     
     image_data = file_data['image']
     print(f"DEBUG: Received image size from client: {len(image_data)} bytes", file=sys.stderr)
@@ -526,7 +581,7 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
     # Validate and convert image to 1-bit PNG
     is_valid, error_message, converted_image_data = validate_and_convert_image(image_data)
     if not is_valid:
-        return send_error(error_message)
+        return send_json({'status': 'error', 'message': error_message})
     
     # Check if location file already exists (pre-assigned location)
     location_file = data_dir / 'locations' / f'{code}.txt'
@@ -536,7 +591,7 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
         # Location was pre-assigned - verify it matches
         existing_location = location_file.read_text(encoding='utf-8').strip()
         if existing_location != parcel_location:
-            return send_error('Wrong location')
+            return send_json({'status': 'error', 'message': 'Wrong location'})
     else:
         # No pre-assigned location - try to add location file
         success, existing_content = atomic_add_file(location_file, parcel_location)
