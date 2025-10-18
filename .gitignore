@@ -1,2 +1,4 @@
 /docs/world
 /docs/world
+/testing-data-dir/download-parcels
+*.pyc
