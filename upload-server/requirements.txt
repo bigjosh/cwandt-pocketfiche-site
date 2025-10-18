@@ -1,0 +1,10 @@
+# Pocket Fische Upload Server Dependencies
+
+# WSGI Server
+waitress>=2.1.2
+
+# Image processing
+Pillow>=10.0.0
+
+# Optional but recommended: Better multipart form handling
+werkzeug>=3.0.0
