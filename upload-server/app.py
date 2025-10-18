@@ -2,11 +2,15 @@
 """
 Pocket Fische Upload Server - WSGI Application
 
+API documented in README.md
+
 Handles two types of commands:
 1. Admin commands: generate-code, get-codes (requires admin-id parameter)
 2. Backer commands: get-parcel, upload (requires code parameter)
 
 All data is stored in files in PF_DATA_DIR environment variable location.
+
+Do not be temped to use only HTTP status codes to return errors, it caused me nothing but problems. Better to just return a JSON object with a status field.
 
 Error handling:
 - Request errors (bad auth, invalid input): HTTP error codes

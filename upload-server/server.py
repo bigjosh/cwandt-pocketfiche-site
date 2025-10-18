@@ -14,14 +14,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from waitress import serve
-from app_wsgi import application
+from app import application
 
 
 def main():
     """Start the Waitress server."""
     # Configuration
     host = os.environ.get('WSGI_HOST', '127.0.0.1')
-    port = int(os.environ.get('WSGI_PORT', '8080'))
+    port = int(os.environ.get('WSGI_PORT', '8000'))
     threads = int(os.environ.get('WSGI_THREADS', '4'))
     
     # Check for data directory
