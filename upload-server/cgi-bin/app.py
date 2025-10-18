@@ -37,7 +37,9 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageFile
+    # Allow loading of truncated images (sometimes happens during upload)
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
 except ImportError:
     # Will error later if image validation is needed
     Image = None
@@ -282,26 +284,20 @@ def validate_parcel_location(location: str) -> bool:
 
 
 def validate_and_convert_image(image_data: bytes) -> Tuple[bool, Optional[str], Optional[bytes]]:
-    """Validate and convert image to 500x500 1-bit black-and-white PNG.
-    
-    Accepts 500x500 PNG in any color mode and converts to 1-bit.
+    """Validate an image and convert it to optimized 1-bit PNG.
     
     Args:
-        image_data: Image data bytes
+        image_data: Raw image bytes
         
     Returns:
-        Tuple of (is_valid, error_message, converted_data)
-        - is_valid: True if valid, False otherwise
-        - error_message: None if valid, error description if invalid
-        - converted_data: 1-bit PNG bytes if valid, None if invalid
+        Tuple of (is_valid, error_message, converted_image_data)
     """
-    if Image is None:
-        # PIL not available, can't validate
-        send_json({'status': 'error', 'message': 'Image validation not available (PIL not installed)', 'code': 500})
-        sys.exit(1)
-    
     try:
+        print(f"DEBUG: validate_and_convert_image received {len(image_data)} bytes", file=sys.stderr)
+        
+        # Load image from bytes
         img = Image.open(io.BytesIO(image_data))
+        print(f"DEBUG: PIL opened image: mode={img.mode}, size={img.size}, format={img.format}", file=sys.stderr)
         
         # Check format
         if img.format != 'PNG':
@@ -621,7 +617,18 @@ def handle_upload(form: cgi.FieldStorage, data_dir: Path) -> None:
         send_json({'status': 'error', 'message': 'No image provided'})
         return
     
-    image_data = file_item.file.read()
+    # Read image data in chunks to ensure we get everything (CGI/ARR buffering issue)
+    # Force complete read by reading in loop until EOF
+    chunks = []
+    while True:
+        chunk = file_item.file.read(8192)  # Read 8KB chunks
+        if not chunk:
+            break
+        chunks.append(chunk)
+    image_data = b''.join(chunks)
+    
+    # Log received image size for debugging
+    print(f"DEBUG: Received image size from client: {len(image_data)} bytes (from {len(chunks)} chunks)", file=sys.stderr)
     
     # Validate and convert image to 1-bit PNG
     is_valid, error_message, converted_image_data = validate_and_convert_image(image_data)
