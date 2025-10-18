@@ -27,6 +27,7 @@
     <form id="generate-form">
       <p>
         <label for="backer-id">Backer ID *</label><br>
+        <small style="color: red;">Required. Use BACK=backer, COMP=giveaway, TEST=testing, etc. Autoincrements.</small><br>
         <input type="text" id="backer-id" name="backer-id" required placeholder="Enter backer identifier" />
       </p>
       
@@ -36,7 +37,7 @@
       </p>
       
       <p>
-        <label for="parcel-location">Parcel Location (Optional)</label><br>
+        <label for="parcel-location">Parcel Location</label><br>
         <input type="text" id="parcel-location" name="parcel-location" 
                placeholder="e.g., A1, B12, AL38 (leave blank for new upload)" 
                pattern="[A-Za-z]{1,2}\d{1,2}" 
@@ -152,6 +153,9 @@
           urlDisplay.textContent = uploadUrl;
           urlDisplay.href = uploadUrl;
           
+          // Store current backer-id for auto-increment on reset
+          form.dataset.lastBackerId = backerId;
+          
           // Hide form, show success
           form.style.display = 'none';
           successDisplay.style.display = 'block';
@@ -194,8 +198,27 @@
     
     // Reset form
     resetBtn.addEventListener('click', () => {
+      // Get last backer-id and auto-increment if it has a number at the end
+      const lastBackerId = form.dataset.lastBackerId || '';
+      let nextBackerId = lastBackerId;
+      
+      if (lastBackerId) {
+        // Match pattern: text followed by number at the end (e.g., "backer123" or "user-42")
+        const match = lastBackerId.match(/^(.*?)(\d+)$/);
+        if (match) {
+          const prefix = match[1];  // Everything before the number
+          const number = parseInt(match[2], 10);  // The number
+          nextBackerId = prefix + (number + 1);  // Increment
+        }
+      }
+      
       // Clear form
       form.reset();
+      
+      // Restore and increment backer-id
+      if (nextBackerId) {
+        document.getElementById('backer-id').value = nextBackerId;
+      }
       
       // Hide success, show form
       successDisplay.style.display = 'none';
