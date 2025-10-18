@@ -22,22 +22,6 @@ body {
   background: #1a1a1a;
 }
 
-/* This is the circle that shows the claimable radius. All the parcels are inside this circle. */
-.gold-disk-circle {
-  fill: #af8149 ;  /* Rich golden orange - default bright version */
-  stroke: none;
-}
-
-.gold-disk-circle-toned {
-  fill: #f3c21f;  /* Brighter orange - toned down version */
-  stroke: none;
-}
-
-.gold-disk-circle-cwt {
-  fill: #ff9412;  /* Brighter orange - toned down version */
-  stroke: none;
-}
-
 
 /* Scale bar styling */
 .leaflet-control-scale {

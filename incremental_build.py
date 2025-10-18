@@ -135,13 +135,6 @@ def is_parcel_claimable_maxzoom_coords(x: int, y: int) -> Optional[str]:
     # Generate and return the parcel label
     return parcel_name(row, col)
 
-
-def create_transparent_tile() -> Image.Image:
-    """Create a TILE_SIZE x TILE_SIZE transparent tile image."""
-    # we make it a full tiole even though that uses slightly more bandwith so we can hopefully save the browser some
-    # computer having to scale it?
-    return Image.new('RGBA', (TILE_SIZE, TILE_SIZE), (0, 0, 0, 0))
-
 def get_placeholder_tile_path(output_dir: Path) -> Path:
     """Get path to the placeholder tile file."""
     return output_dir / "placeholder_tile.png"
@@ -150,10 +143,18 @@ def generate_placeholder_tile_file(output_dir: Path) -> None:
     """Generate a TILE_SIZE x TILE_SIZE transparent PNG tile."""
     placeholder_path = get_placeholder_tile_path(output_dir)
     placeholder_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Create transparent tile and save as optimized PNG
-    img = create_transparent_tile()
-    img.save(placeholder_path, 'PNG', optimize=True)    
+
+    # from gemini 2.5    
+    # --- Create a 1-bit TILE_SIZE x TILE_SIZE   image ---
+    # Mode '1' is a 1-bit, black-and-white image.
+    # We initialize the background color to 1 (which corresponds to white).
+    img = Image.new('RGBA', (1, 1), (255, 255,255, 0))  # white
+
+    # --- Save the image as PNG ---
+    # By setting 'transparency=1', we tell the PNG saver to
+    # make the color '1' (white) fully transparent.
+    # The color '0' (black) will remain opaque.
+    img.save(placeholder_path, 'PNG' ,optimize=True)    
 
 
 def maxzoom_tile_coords_to_label(x: int, y: int) -> Optional[str]:
@@ -227,6 +228,7 @@ def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Imag
     Returns:
         PIL Image
     """
+
     child_zoom = zoom + 1
     child_zoom_dir = zoom_dir.parent / str(child_zoom)
     
@@ -242,7 +244,28 @@ def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Imag
             if not child_path.exists():
                 raise Exception(f"Child tile {child_path} does not exist")
 
-            row.append(Image.open(child_path))
+            # Open and convert to RGBA to preserve transparency
+            child_img = Image.open(child_path)
+            
+            # For 1-bit images with transparency, we need to handle it specially
+            if child_img.mode == '1' and 'transparency' in child_img.info:
+                # Convert to grayscale first to get the pixel values
+                gray = child_img.convert('L')
+                # Create RGBA with alpha channel based on white pixels
+                child_rgba = Image.new('RGBA', child_img.size)
+                pixels = child_rgba.load()
+                gray_pixels = gray.load()
+                for py in range(child_img.height):
+                    for px in range(child_img.width):
+                        if gray_pixels[px, py] == 255:  # White pixel
+                            pixels[px, py] = (255, 255, 255, 0)  # Transparent
+                        else:  # Black pixel
+                            pixels[px, py] = (0, 0, 0, 255)  # Opaque black
+            else:
+                # For other formats, just convert to RGBA
+                child_rgba = child_img.convert('RGBA')
+            
+            row.append(child_rgba)
         
         child_tiles.append(row)
     
@@ -261,10 +284,16 @@ def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Imag
     combined = Image.new('RGBA', (TILE_SIZE * 2, TILE_SIZE * 2), (0, 0, 0, 0))
     for dy in range(2):
         for dx in range(2):
-            combined.paste(child_tiles[dy][dx], (dx * TILE_SIZE, dy * TILE_SIZE))
+            # Pass the image as mask to preserve alpha channel transparency
+            combined.paste(child_tiles[dy][dx], (dx * TILE_SIZE, dy * TILE_SIZE), child_tiles[dy][dx])
     
     # Scale down to TILE_SIZE x TILE_SIZE using high-quality resampling (anti-aliasing)
+    # LANCZOS properly handles alpha channel in RGBA mode
     scaled = combined.resize((TILE_SIZE, TILE_SIZE), Image.Resampling.LANCZOS)
+    
+    # Ensure we're returning RGBA mode
+    if scaled.mode != 'RGBA':
+        scaled = scaled.convert('RGBA')
             
     return scaled
 
@@ -283,6 +312,22 @@ def is_file_newer_than(source_path: Path, destination_path: Path) -> bool:
     
     return source_mtime > destination_mtime
 
+BG_COLOR = ( 0 , 0 , 255)
+
+def convert_parcel_to_tile(input_path, output_path):
+    """Convert parcel image to 1-bit black/white with white as transparent."""
+    # Open and load the image
+    img = Image.open(input_path)
+    
+    # Convert to grayscale first (luminance-based)
+    img_gray = img.convert('L')
+    
+    # Convert to 1-bit using 50% threshold: >127 becomes white (1), <=127 becomes black (0)
+    img_1bit = img_gray.convert('1')
+    
+    # Save as PNG with white (color value 1) set to transparent
+    img_1bit.save(output_path, 'PNG', transparency=1, optimize=True)
+    
 
 def incremental_update_image_tile_at_maxzoom(x: int, y: int, parcels_dir: Path, output_dir: Path) -> bool:
     """Rebuild a single image tile at MAX_ZOOM if needed. Returns true if the tile was rebuilt.
@@ -301,32 +346,46 @@ def incremental_update_image_tile_at_maxzoom(x: int, y: int, parcels_dir: Path, 
     """
     # Get parcel label for this tile position (accounts for offset)
     parcel_name = maxzoom_tile_coords_to_label(x, y)
-    
-    # Determine source file: either parcel or placeholder tile
-    if parcel_name is None:
-        parcel_path = get_placeholder_tile_path(output_dir)
-    else:
-        parcel_path = parcels_dir / f"{parcel_name}.png"
-        if not parcel_path.exists():
-            parcel_path = get_placeholder_tile_path(output_dir)
-    
+
     image_tile_path = output_dir / "images" / str(MAX_ZOOM) / str(x) / f"{y}.png"
 
-    # is source newer than target?
-    needs_rebuild = is_file_newer_than(parcel_path, image_tile_path)
+    # lets special case out the cases where we do not just load the parcel into the tile
+
+    # do we need a placeholder?
+    # yes if the parcel is not in the grid or there is no parcel file
+
+
+    # we need to generate the tile if there is no current tile file OR the parcel is newer than the tile
+    # if there is no parcel file, then it can not be newer (at least until we start delaing with deletes)
+
+    parcel_exists = False
     
-    if needs_rebuild:
-        # Save image tile
-        image_dir = output_dir / "images" / str(MAX_ZOOM) / str(x)
-        image_dir.mkdir(parents=True, exist_ok=True)
+    if parcel_name is not None:
+        parcel_path = parcels_dir / f"{parcel_name}.png"
+        parcel_exists = parcel_path.exists()
         
-        # copy gives the target file a new timestamp
-        # we want this so when a parcel gets deleted, the new placeholder will trigger a rebuild of lower zoom tiles
-        shutil.copy(parcel_path, image_tile_path)
-        
+    if image_tile_path.exists():
+        if not parcel_exists:
+            # we already generated a placeholder for this tile
+            return False
+
+        if not is_file_newer_than(parcel_path, image_tile_path):
+            # tile is up to date
+            return False
+
+
+    # we need to generate the tile
+
+    if not parcel_exists:
+        # tile gets a placeholder
+        placeholder_path = get_placeholder_tile_path(output_dir)
+        image_tile_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(placeholder_path, image_tile_path)
         return True
-    
-    return False
+
+    # just a normal parcel to a tile
+    convert_parcel_to_tile(parcel_path, image_tile_path)
+    return True
 
 
 def incrementral_update_all_image_tiles_as_maxzoom(parcels_dir: Path, output_dir: Path):
@@ -375,7 +434,8 @@ def rebuild_tile_at_zoom(zoom: int, x: int, y: int, layer_root: Path):
     tile_dir = zoom_dir / str(x)
     tile_dir.mkdir(parents=True, exist_ok=True)
     tile_path = tile_dir / f"{y}.png"
-    tile.save(tile_path, 'PNG')
+    # Save with explicit RGBA mode to preserve transparency
+    tile.save(tile_path, 'PNG', optimize=True)
 
 def incremental_update_tile_at_zoom(zoom: int, x: int, y: int, layer_root: Path) -> bool:
     """Rebuild a tile at given zoom level only if any child tile is newer.
@@ -414,6 +474,7 @@ def incremental_update_tile_at_zoom(zoom: int, x: int, y: int, layer_root: Path)
             break
     
     if needs_rebuild:
+        # print(f"🔨 Rebuilding tile {zoom}/{x}/{y}")
         rebuild_tile_at_zoom(zoom, x, y, layer_root)
         return True
     
@@ -508,7 +569,7 @@ def generate_labels_maxzoom(output_dir: Path):
             if parcel_name:
                 # Create label tile with text and grid for claimable parcel
                 label_img = create_label_tile_maxzoom(parcel_name)
-                label_img.save(label_path, 'PNG')
+                label_img.save(label_path, 'PNG', optimize=True)
                 labels_created += 1
             else:
                 # Copy placeholder tile file for non-claimable positions

@@ -311,17 +311,34 @@ def validate_and_convert_image(image_data: bytes) -> Tuple[bool, Optional[str], 
         if img.size != (PARCEL_SIZE, PARCEL_SIZE):
             return (False, f"Image must be exactly {PARCEL_SIZE}x{PARCEL_SIZE} pixels (received {img.size[0]}x{img.size[1]})", None)
         
-        # Convert to 1-bit black and white if needed
+        # Convert to 1-bit black and white, then make black pixels transparent
         # (Browser canvas creates RGBA PNGs, so we convert server-side)
+        
+        # Step 1: Convert to 1-bit to ensure only pure black (0) and pure white (255)
         if img.mode != '1':
             # Convert to grayscale first
             img = img.convert('L')
             # Then to 1-bit with dithering
             img = img.convert('1')
         
-        # Save as 1-bit PNG
-        output = io.BytesIO()
-        img.save(output, format='PNG')
+        # Step 2: Convert to RGBA to add transparency
+        # img = img.convert('RGBA')
+        
+        # # Step 3: Get pixel data and make black transparent, white opaque
+        # pixels = img.load()
+        # for y in range(img.height):
+        #     for x in range(img.width):
+        #         r, g, b, a = pixels[x, y]
+        #         if r == 0 and g == 0 and b == 0:
+        #             # Pure black 
+        #             pixels[x, y] = (0, 0, 0)
+        #         else:
+        #             # Pure white 
+        #             pixels[x, y] = (255, 255, 255)
+        
+        # # Save as PNG with transparency
+        # output = io.BytesIO()
+        img.save(output, format='PNG', optimize=True)
         converted_data = output.getvalue()
         
         return (True, None, converted_data)
@@ -376,13 +393,13 @@ def handle_generate_code(form: cgi.FieldStorage, data_dir: Path) -> None:
     # Read admin-name from admin file (first line)
     admin_file = data_dir / 'admins' / f'{admin_id}.txt'
     try:
-        admin_name = admin_file.read_text(encoding='utf-8').split('\n', 1)[0].strip()
-        if not admin_name:
+        creator_admin_name = admin_file.read_text(encoding='utf-8').split('\n', 1)[0].strip()
+        if not creator_admin_name:
             # Empty file - use generic fallback, never expose admin_id
-            admin_name = "[Admin]"
+            creator_admin_name = "[Could not read admin name]"
     except Exception:
         # Error reading file - use generic fallback, never expose admin_id
-        admin_name = "[Admin]"
+        creator_admin_name = "[Could not read admin name]"
     
     # Get POST parameters
     backer_id = form.getfirst('backer-id', '').strip()
@@ -404,7 +421,7 @@ def handle_generate_code(form: cgi.FieldStorage, data_dir: Path) -> None:
     for _ in range(10):
         code = generate_code()
         access_file = data_dir / 'access' / f'{code}.txt'
-        content = f"{backer_id}\n{admin_name}\n{notes}"
+        content = f"{backer_id}\n{creator_admin_name}\n{notes}"
         
         success, _ = atomic_add_file(access_file, content)
         if success:

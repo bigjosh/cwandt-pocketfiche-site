@@ -507,15 +507,20 @@
   const innerRadiusMicrometers = innerDiameterMicrometers / 2;
   const radiusMapUnits = innerRadiusMicrometers / UM_PER_MAPUNIT;
   
+  // Disk color constants for different zoom levels
+  const goldColor   = '#E5B83B';   // Default gold color at parcel zoom - rich warm gold
+  const cwandtColor = '#ff9412';   // CW&T orange at intermediate zoom
+  const sunColor    = '#FFCF37';   // Sun yellow at solar system zoom
+  
   // Create circle centered at origin (0, 0)
-  // Default to bright color (#ffad1f)
+  // Default to gold color (will be updated dynamically based on zoom)
   const circle = L.circle([0, 0], {
     radius: radiusMapUnits,
     weight: 0,                      // Leaflet does not zoom border properly
-    className: 'gold-disk-circle',
-    fillOpacity: 1,     // Override Leaflet's default 0.2 opacity
-    pane: 'goldDiskPane',  // Use custom pane to render behind tiles
-    interactive: false,  // Don't capture mouse events
+    fillColor: goldColor,           // Default gold color
+    fillOpacity: 1,                 // Override Leaflet's default 0.2 opacity
+    pane: 'goldDiskPane',           // Use custom pane to render behind tiles
+    interactive: false,             // Don't capture mouse events
     //renderer: svgRenderer  // Explicitly use SVG renderer
   });
   
@@ -1146,48 +1151,34 @@
     return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
   }
   
-
-  const goldColor   = '#af8149';   
-  const cwandtColor = '#ff9412';    
-  const sunColor    = "#FFCF37";
-
-  // these transitions are imperically derived so sue me
+  // Color constants are defined earlier near circle creation (lines ~511-513)
 
   function diskColor( zoom ) {
 
     if (zoom >= 0) {
-      // Just normal parcel views
+      // At or above parcel zoom: gold color
       return goldColor;
     }
 
-    // Once we get lower than zero, they zoomed out paste where the whole disk fills the canvas
-
-    // gridlines should disapear at -1
-
-    // Stuff in the disk should disapear at -2
-
-    // when we get to -3 we should be cwt
-
-    if (zoom == -1 ) {
-      return interpolateColor(goldColor, cwandtColor, 0.33);
+    // Zoom < 0: smooth color transitions as we zoom out
+    
+    if (zoom > CWANT_LOGO_ZOOM_LEVEL) {
+      // Between 0 and CWANT_LOGO_ZOOM_LEVEL (-2): fade from gold to CW&T orange
+      // Calculate factor: at zoom=0 factor=0 (gold), at zoom=-2 factor=1 (cwandt)
+      const factor = -zoom / Math.abs(CWANT_LOGO_ZOOM_LEVEL);
+      return interpolateColor(goldColor, cwandtColor, factor);
     }
-
-    if (zoom == -2 ) {
-      return interpolateColor(goldColor, cwandtColor, 0.66);
+    
+    if (zoom > MAP_MIN_ZOOM) {
+      // Between CWANT_LOGO_ZOOM_LEVEL (-2) and MAP_MIN_ZOOM (-7): fade from CW&T orange to sun yellow
+      // Calculate factor: at zoom=-2 factor=0 (cwandt), at zoom=-7 factor=1 (sun)
+      const range = MAP_MIN_ZOOM - CWANT_LOGO_ZOOM_LEVEL;  // -7 - (-2) = -5
+      const offset = zoom - CWANT_LOGO_ZOOM_LEVEL;         // e.g., -4 - (-2) = -2
+      const factor = -offset / Math.abs(range);             // e.g., -(-2) / 5 = 0.4
+      return interpolateColor(cwandtColor, sunColor, factor);
     }
-
-    if (zoom == -3 ) {
-      return cwandtColor;
-    }
-
-    if (zoom == -4 ) {
-      return interpolateColor(cwandtColor, sunColor, 0.33);
-    }
-
-    if (zoom == -5 ) {
-      return interpolateColor(cwandtColor, sunColor, 0.66);
-    }
-
+    
+    // At or below MAP_MIN_ZOOM (-7): full sun color
     return sunColor;
 
   }

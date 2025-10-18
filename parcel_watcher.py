@@ -54,6 +54,15 @@ class ParcelChangeHandler(FileSystemEventHandler):
             print(f"📝 Detected modified parcel: {parcel_name}")
             self._mark_change()
     
+    def on_deleted(self, event):
+        """Called when a file is deleted."""
+        # todo: we need to run --init to deal with a delete for now. 
+        if not event.is_directory and event.src_path.endswith('.png'):
+            parcel_path = Path(event.src_path)
+            parcel_name = parcel_path.stem
+            print(f"🗑️  Detected deleted parcel: {parcel_name}")
+            self._mark_change()
+    
     def _mark_change(self):
         """Mark that a change has occurred."""
         self.last_change_time = time.time()
