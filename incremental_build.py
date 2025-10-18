@@ -6,7 +6,12 @@ Uses file timestamps to rebuild only out-of-date tiles in the pyramid.
 Works like a traditional build system (make/ninja):
 - Rebuild zoom 6 tiles when parcel files are newer
 - Rebuild parent tiles when any child tile is newer
-- Compress changed tiles with lossless PNG optimization
+- Compress changed tiles with ZopfliPNG for maximum lossless compression
+
+Requirements:
+- Pillow: pip install Pillow
+- zopflipy (optional, recommended): pip install zopflipy==1.11
+  Falls back to PIL compression if not installed
 
 Usage:
   python incremental_build.py [--parcels-dir parcels] [--output-dir docs/world] [--init] [--no-compress]
@@ -14,6 +19,7 @@ Usage:
 
 import argparse
 import math
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -25,6 +31,14 @@ except ImportError:
     print("Error: Pillow library required. Install with: pip install Pillow")
     sys.exit(1)
 
+compression_enabled = False
+
+try:
+    import oxipng
+    compression_enabled = True
+except ImportError as e:
+    print("Error: pip install pyoxipng")
+    compression_enabled = False
 
 # Constants
 TILE_SIZE = 500  # All tiles are 500x500 pixels
@@ -334,19 +348,52 @@ def convert_parcel_to_tile(input_path, output_path):
     img_1bit.save(output_path, 'PNG', transparency=1)
     
 
-def compress_png(png_path: Path) -> None:
-    """Compress a PNG file losslessly using PIL optimization.
+def _compress_with_oxipng(input_path: Path, output_path: Path) -> bool:
+
+    oxipng.optimize(input_path, output_path)
+
+    return True
+
+
+def compress_png(png_path: Path) -> tuple[int, int]:
+    """Compress a PNG file losslessly with atomic file replacement.
+    
     
     Args:
         png_path: Path to PNG file to compress
+        
+    Returns:
+        Tuple of (original_size, compressed_size) in bytes
     """
-    # Load the image
-    img = Image.open(png_path)
+    import tempfile
     
-    # Save with maximum compression
-    # optimize=True enables PIL's PNG optimizer
-    # compress_level=9 uses maximum zlib compression
-    img.save(png_path, 'PNG', optimize=True, compress_level=9)
+    # Get original file size
+    original_size = png_path.stat().st_size
+    
+    # Create temp file in same directory (ensures same filesystem for atomic rename)
+    fd, temp_path = tempfile.mkstemp(dir=png_path.parent, suffix='.png')
+    temp_path = Path(temp_path)
+    
+    # Close the file descriptor immediately (we'll use the path, not the descriptor)
+    os.close(fd)
+    
+    try:
+        _compress_with_oxipng(png_path, temp_path)
+        
+        # Get compressed file size
+        compressed_size = temp_path.stat().st_size
+        
+        # Atomically replace original with compressed version
+        # Path.replace() is atomic on both Unix and Windows
+        temp_path.replace(png_path)
+        
+        return (original_size, compressed_size)
+        
+    except Exception:
+        # Clean up temp file on error
+        if temp_path.exists():
+            temp_path.unlink()
+        raise
 
 
 def incremental_update_image_tile_at_maxzoom(x: int, y: int, parcels_dir: Path, output_dir: Path) -> Optional[Path]:
@@ -397,11 +444,11 @@ def incremental_update_image_tile_at_maxzoom(x: int, y: int, parcels_dir: Path, 
     # we need to generate the tile
 
     if not parcel_exists:
-        # tile gets a placeholder
+        # tile gets a placeholder (already optimized, don't compress)
         placeholder_path = get_placeholder_tile_path(output_dir)
         image_tile_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(placeholder_path, image_tile_path)
-        return image_tile_path
+        return None  # Don't add to compression list
 
     # just a normal parcel to a tile
     convert_parcel_to_tile(parcel_path, image_tile_path)
@@ -648,21 +695,45 @@ def compress_changed_tiles(changed_tiles: List[Path]):
         return
     
     compressed_count = 0
-    total_saved = 0
+    no_compression_count = 0
+    total_original = 0
+    total_compressed = 0
     
     for tile_path in changed_tiles:
         if not tile_path.exists():
             continue
+        
+        original_size, compressed_size = compress_png(tile_path)
+        saved = original_size - compressed_size
+        percent = ((original_size - compressed_size) / original_size * 100) if original_size > 0 else 0
+        
+        if saved == 0:
+            # No compression achieved, don't print individual line
+            no_compression_count += 1
+        else:
+            # Show path relative to current directory
+            try:
+                display_path = tile_path.relative_to(Path.cwd())
+            except ValueError:
+                # If not relative to cwd, show absolute path
+                display_path = tile_path
             
-        original_size = tile_path.stat().st_size
-        compress_png(tile_path)
-        new_size = tile_path.stat().st_size
-        saved = original_size - new_size
-        total_saved += saved
-        compressed_count += 1
+            print(f"   {display_path}: {original_size:,} → {compressed_size:,} bytes ({percent:+.1f}%)")
+            
+            # Only count towards compression ratio if actually compressed
+            total_original += original_size
+            total_compressed += compressed_size
+            compressed_count += 1
     
-    total_saved_kb = total_saved / 1024
-    print(f"   Compressed {compressed_count} tiles, saved {total_saved_kb:.1f} KB")
+    # Print summary
+    if compressed_count > 0:
+        total_saved = total_original - total_compressed
+        total_percent = ((total_original - total_compressed) / total_original * 100) if total_original > 0 else 0
+        print(f"\n   Compressed: {compressed_count} tiles, {total_original:,} → {total_compressed:,} bytes ({total_percent:+.1f}%)")
+        print(f"   Saved: {total_saved / 1024:.1f} KB")
+    
+    if no_compression_count > 0:
+        print(f"   No change: {no_compression_count} tiles (already optimal)")
 
 
 def incremental_build(parcels_dir: Path, output_dir: Path, compress: bool = True):
@@ -707,6 +778,9 @@ def incremental_build(parcels_dir: Path, output_dir: Path, compress: bool = True
 
 
 def main() -> int:
+    # Show zopfli status at startup
+
+    
     parser = argparse.ArgumentParser(
         description='Incrementally build tile pyramid using timestamp-based dependencies'
     )
@@ -741,7 +815,14 @@ def main() -> int:
     
     # Determine if compression should be enabled
     compress = not args.no_compress
-    
+
+    if compress:
+        if compression_enabled:
+            print("Compression enabled")
+        else:
+            print("Can not compress PNG files, do `pip install pyoxipng`")
+            sys.exit(1)
+            
     return incremental_build(parcels_dir, output_dir, compress)
 
 
