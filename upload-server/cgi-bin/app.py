@@ -336,8 +336,8 @@ def validate_and_convert_image(image_data: bytes) -> Tuple[bool, Optional[str], 
         #             # Pure white 
         #             pixels[x, y] = (255, 255, 255)
         
-        # # Save as PNG with transparency
-        # output = io.BytesIO()
+        # Save as PNG
+        output = io.BytesIO()
         img.save(output, format='PNG', optimize=True)
         converted_data = output.getvalue()
         
