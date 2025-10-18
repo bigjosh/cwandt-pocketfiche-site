@@ -344,7 +344,7 @@ def validate_and_convert_image(image_data: bytes) -> Tuple[bool, Optional[str], 
         return (True, None, converted_data)
         
     except Exception as e:
-        return (False, f"Failed to process image: {str(e)}", None)
+        return (False, f"Failed to process image exception: {str(e)}", None)
 
 
 def check_admin_auth(admin_id: str, data_dir: Path) -> bool:
