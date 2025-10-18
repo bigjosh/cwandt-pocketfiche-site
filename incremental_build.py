@@ -6,9 +6,10 @@ Uses file timestamps to rebuild only out-of-date tiles in the pyramid.
 Works like a traditional build system (make/ninja):
 - Rebuild zoom 6 tiles when parcel files are newer
 - Rebuild parent tiles when any child tile is newer
+- Compress changed tiles with lossless PNG optimization
 
 Usage:
-  python incremental_build.py [--parcels-dir parcels] [--output-dir docs/world] [--init]
+  python incremental_build.py [--parcels-dir parcels] [--output-dir docs/world] [--init] [--no-compress]
 """
 
 import argparse
@@ -16,7 +17,7 @@ import math
 import shutil
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -315,7 +316,10 @@ def is_file_newer_than(source_path: Path, destination_path: Path) -> bool:
 BG_COLOR = ( 0 , 0 , 255)
 
 def convert_parcel_to_tile(input_path, output_path):
-    """Convert parcel image to 1-bit black/white with white as transparent."""
+    """Convert parcel image to 1-bit black/white with white as transparent.
+    
+    Note: Does not optimize here - compression happens in separate pass.
+    """
     # Open and load the image
     img = Image.open(input_path)
     
@@ -326,11 +330,27 @@ def convert_parcel_to_tile(input_path, output_path):
     img_1bit = img_gray.convert('1')
     
     # Save as PNG with white (color value 1) set to transparent
-    img_1bit.save(output_path, 'PNG', transparency=1, optimize=True)
+    # Don't optimize here - we'll do compression in a separate pass
+    img_1bit.save(output_path, 'PNG', transparency=1)
     
 
-def incremental_update_image_tile_at_maxzoom(x: int, y: int, parcels_dir: Path, output_dir: Path) -> bool:
-    """Rebuild a single image tile at MAX_ZOOM if needed. Returns true if the tile was rebuilt.
+def compress_png(png_path: Path) -> None:
+    """Compress a PNG file losslessly using PIL optimization.
+    
+    Args:
+        png_path: Path to PNG file to compress
+    """
+    # Load the image
+    img = Image.open(png_path)
+    
+    # Save with maximum compression
+    # optimize=True enables PIL's PNG optimizer
+    # compress_level=9 uses maximum zlib compression
+    img.save(png_path, 'PNG', optimize=True, compress_level=9)
+
+
+def incremental_update_image_tile_at_maxzoom(x: int, y: int, parcels_dir: Path, output_dir: Path) -> Optional[Path]:
+    """Rebuild a single image tile at MAX_ZOOM if needed. Returns tile path if rebuilt.
     
     Checks if parcel exists for the tile position. If not, uses transparent pixel.
     If parcel exists, checks if it's newer than the tile and rebuilds if needed.
@@ -342,7 +362,7 @@ def incremental_update_image_tile_at_maxzoom(x: int, y: int, parcels_dir: Path, 
         output_dir: Root output directory
         
     Returns:
-        True if tile was rebuilt, False if skipped (up to date)
+        Path to tile if rebuilt, None if skipped (up to date)
     """
     # Get parcel label for this tile position (accounts for offset)
     parcel_name = maxzoom_tile_coords_to_label(x, y)
@@ -367,11 +387,11 @@ def incremental_update_image_tile_at_maxzoom(x: int, y: int, parcels_dir: Path, 
     if image_tile_path.exists():
         if not parcel_exists:
             # we already generated a placeholder for this tile
-            return False
+            return None
 
         if not is_file_newer_than(parcel_path, image_tile_path):
             # tile is up to date
-            return False
+            return None
 
 
     # we need to generate the tile
@@ -381,14 +401,14 @@ def incremental_update_image_tile_at_maxzoom(x: int, y: int, parcels_dir: Path, 
         placeholder_path = get_placeholder_tile_path(output_dir)
         image_tile_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(placeholder_path, image_tile_path)
-        return True
+        return image_tile_path
 
     # just a normal parcel to a tile
     convert_parcel_to_tile(parcel_path, image_tile_path)
-    return True
+    return image_tile_path
 
 
-def incrementral_update_all_image_tiles_as_maxzoom(parcels_dir: Path, output_dir: Path):
+def incrementral_update_all_image_tiles_as_maxzoom(parcels_dir: Path, output_dir: Path, changed_tiles: List[Path]):
     """Scan all tiles at MAX_ZOOM and rebuild those that are out of date.
     
     Iterates through all 64x64 tiles at zoom 6 (MAX_ZOOM). For each tile,
@@ -398,6 +418,7 @@ def incrementral_update_all_image_tiles_as_maxzoom(parcels_dir: Path, output_dir
     Args:
         parcels_dir: Path to directory containing parcel PNG files
         output_dir: Root output directory
+        changed_tiles: List to append changed tile paths to
     """
     rebuilt_count = 0
     skipped_count = 0   
@@ -406,7 +427,9 @@ def incrementral_update_all_image_tiles_as_maxzoom(parcels_dir: Path, output_dir
     
     for x in range(tiles_at_maxzoom):
         for y in range(tiles_at_maxzoom):
-            if incremental_update_image_tile_at_maxzoom(x, y, parcels_dir, output_dir):
+            tile_path = incremental_update_image_tile_at_maxzoom(x, y, parcels_dir, output_dir)
+            if tile_path:
+                changed_tiles.append(tile_path)
                 rebuilt_count += 1
             else:
                 skipped_count += 1
@@ -435,9 +458,10 @@ def rebuild_tile_at_zoom(zoom: int, x: int, y: int, layer_root: Path):
     tile_dir.mkdir(parents=True, exist_ok=True)
     tile_path = tile_dir / f"{y}.png"
     # Save with explicit RGBA mode to preserve transparency
-    tile.save(tile_path, 'PNG', optimize=True)
+    # Don't optimize here - we'll do compression in a separate pass
+    tile.save(tile_path, 'PNG')
 
-def incremental_update_tile_at_zoom(zoom: int, x: int, y: int, layer_root: Path) -> bool:
+def incremental_update_tile_at_zoom(zoom: int, x: int, y: int, layer_root: Path, changed_tiles: List[Path] = None) -> bool:
     """Rebuild a tile at given zoom level only if any child tile is newer.
     
     Checks timestamps of all 4 child tiles and rebuilds parent tile only if
@@ -448,6 +472,7 @@ def incremental_update_tile_at_zoom(zoom: int, x: int, y: int, layer_root: Path)
         x: Tile x coordinate
         y: Tile y coordinate
         layer_root: Root path of the layer (e.g., output_dir / "images" or output_dir / "labels")
+        changed_tiles: Optional list to append changed tile paths to
         
     Returns:
         True if tile was rebuilt, False if skipped (up to date)
@@ -476,16 +501,19 @@ def incremental_update_tile_at_zoom(zoom: int, x: int, y: int, layer_root: Path)
     if needs_rebuild:
         # print(f"🔨 Rebuilding tile {zoom}/{x}/{y}")
         rebuild_tile_at_zoom(zoom, x, y, layer_root)
+        if changed_tiles is not None:
+            changed_tiles.append(parent_path)
         return True
     
     return False
 
-def incremental_update_all_tiles_at_zoom(zoom: int, layer_root: Path):
+def incremental_update_all_tiles_at_zoom(zoom: int, layer_root: Path, changed_tiles: List[Path] = None):
     """Incrementally update all tiles at given zoom level by checking child timestamps.
     
     Args:
         zoom: Zoom level to rebuild
         layer_root: Root path of the layer (e.g., output_dir / "images" or output_dir / "labels")
+        changed_tiles: Optional list to append changed tile paths to
     """
     tiles_at_zoom = get_grid_size_at_zoom(zoom)
     rebuilt_count = 0
@@ -493,7 +521,7 @@ def incremental_update_all_tiles_at_zoom(zoom: int, layer_root: Path):
     
     for x in range(tiles_at_zoom):
         for y in range(tiles_at_zoom):
-            if incremental_update_tile_at_zoom(zoom, x, y, layer_root):
+            if incremental_update_tile_at_zoom(zoom, x, y, layer_root, changed_tiles):
                 rebuilt_count += 1
             else:
                 skipped_count += 1
@@ -520,7 +548,7 @@ def rebuild_all_tiles_at_zoom(zoom: int, layer_root: Path):
     print(f"   Created {created_count} tiles at zoom level {zoom}")
 
 
-def incremental_update_tiles_at_all_zooms(layer_root: Path):
+def incremental_update_tiles_at_all_zooms(layer_root: Path, changed_tiles: List[Path] = None):
     """Incrementally update tiles at all zoom levels from MAX_ZOOM-1 down to MIN_ZOOM.
     
     Only rebuilds tiles whose children have changed (timestamp-based).
@@ -528,10 +556,11 @@ def incremental_update_tiles_at_all_zooms(layer_root: Path):
     
     Args:
         layer_root: Root path of the layer (e.g., output_dir / "images" or output_dir / "labels")
+        changed_tiles: Optional list to append changed tile paths to
     """
     for zoom in range(MAX_ZOOM - 1, MIN_ZOOM - 1, -1):
         print(f"🔨 Zoom level {zoom}...")
-        incremental_update_all_tiles_at_zoom(zoom, layer_root)
+        incremental_update_all_tiles_at_zoom(zoom, layer_root, changed_tiles)
 
 
 def rebuild_tiles_at_all_zooms(layer_root: Path):
@@ -608,8 +637,42 @@ def init_output_dir(output_dir: Path):
     print("✅ Labels tree complete")
     print()
 
-def incremental_build(parcels_dir: Path, output_dir: Path):
-    """Perform timestamp-based incremental build of world tiles."""
+def compress_changed_tiles(changed_tiles: List[Path]):
+    """Compress all changed PNG tiles.
+    
+    Args:
+        changed_tiles: List of PNG file paths to compress
+    """
+    if not changed_tiles:
+        print("   No tiles to compress")
+        return
+    
+    compressed_count = 0
+    total_saved = 0
+    
+    for tile_path in changed_tiles:
+        if not tile_path.exists():
+            continue
+            
+        original_size = tile_path.stat().st_size
+        compress_png(tile_path)
+        new_size = tile_path.stat().st_size
+        saved = original_size - new_size
+        total_saved += saved
+        compressed_count += 1
+    
+    total_saved_kb = total_saved / 1024
+    print(f"   Compressed {compressed_count} tiles, saved {total_saved_kb:.1f} KB")
+
+
+def incremental_build(parcels_dir: Path, output_dir: Path, compress: bool = True):
+    """Perform timestamp-based incremental build of world tiles.
+    
+    Args:
+        parcels_dir: Path to directory containing parcel PNG files
+        output_dir: Root output directory
+        compress: If True, compress changed tiles after building
+    """
     
     print("╔════════════════════════════════════════════════════════════╗")
     print("║  Incremental World Tile Builder (Timestamp-based)          ║")
@@ -621,15 +684,24 @@ def incremental_build(parcels_dir: Path, output_dir: Path):
         print("❌ Output directory does not exist. Please run --init first.")
         sys.exit(1)
     
+    # Track all changed tiles for compression
+    changed_tiles = []
+    
     # Phase 1: Build maxzoom images (check all tile positions)
     print(f"🔨 Phase 1: Zoom level {MAX_ZOOM} ...")
-    incrementral_update_all_image_tiles_as_maxzoom(parcels_dir, output_dir)
-    # todo return the list of cahnged tiles from each call so we can do a more selective rebuild of the lower zooms
+    incrementral_update_all_image_tiles_as_maxzoom(parcels_dir, output_dir, changed_tiles)
     print()
     
     # Phase 2: Build zoom levels 5 down to 0 (check child timestamps)
     images_root = output_dir / "images"
-    incremental_update_tiles_at_all_zooms(images_root)
+    incremental_update_tiles_at_all_zooms(images_root, changed_tiles)
+    print()
+    
+    # Phase 3: Compress changed tiles
+    if compress and changed_tiles:
+        print(f"🗜️  Phase 3: Compressing {len(changed_tiles)} changed tiles...")
+        compress_changed_tiles(changed_tiles)
+        print()
     
     return 0
 
@@ -653,6 +725,11 @@ def main() -> int:
         action='store_true',
         help='Initialize output directory, clearing all existing tiles and rebuilding from scratch'
     )
+    parser.add_argument(
+        '--no-compress',
+        action='store_true',
+        help='Skip PNG compression after building tiles'
+    )
     
     args = parser.parse_args()
     
@@ -662,7 +739,10 @@ def main() -> int:
     if args.init:
         init_output_dir(output_dir)
     
-    return incremental_build(parcels_dir, output_dir)
+    # Determine if compression should be enabled
+    compress = not args.no_compress
+    
+    return incremental_build(parcels_dir, output_dir, compress)
 
 
 if __name__ == '__main__':
