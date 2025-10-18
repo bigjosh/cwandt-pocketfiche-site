@@ -234,6 +234,41 @@
     let sortField = 'code';
     let sortAscending = true;
     
+    // Show notes popup
+    window.showNotesPopup = function(notes) {
+      // Create modal overlay
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; display: flex; align-items: center; justify-content: center;';
+      
+      // Create modal content
+      const modal = document.createElement('div');
+      modal.style.cssText = 'background: white; padding: 20px; border-radius: 5px; max-width: 600px; max-height: 80%; overflow: auto; position: relative;';
+      
+      // Add close button
+      const closeBtn = document.createElement('button');
+      closeBtn.textContent = 'Close';
+      closeBtn.style.cssText = 'position: absolute; top: 10px; right: 10px;';
+      closeBtn.onclick = () => document.body.removeChild(overlay);
+      
+      // Add notes content (preserve line breaks)
+      const content = document.createElement('pre');
+      content.style.cssText = 'white-space: pre-wrap; word-wrap: break-word; margin-top: 30px;';
+      content.textContent = notes;
+      
+      modal.appendChild(closeBtn);
+      modal.appendChild(content);
+      overlay.appendChild(modal);
+      
+      // Close on overlay click
+      overlay.onclick = (e) => {
+        if (e.target === overlay) {
+          document.body.removeChild(overlay);
+        }
+      };
+      
+      document.body.appendChild(overlay);
+    };
+    
     // Build and display codes table
     function displayCodesTable() {
       let html = '<h2>All Codes</h2>';
@@ -246,9 +281,9 @@
         html += `<th><a href="#" onclick="sortCodes('code'); return false;">Code ${sortField === 'code' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += `<th><a href="#" onclick="sortCodes('backer-id'); return false;">Backer ID ${sortField === 'backer-id' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += `<th><a href="#" onclick="sortCodes('admin-name'); return false;">Created By ${sortField === 'admin-name' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
-        html += '<th>Notes</th>';
         html += `<th><a href="#" onclick="sortCodes('parcel-location'); return false;">Location ${sortField === 'parcel-location' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += `<th><a href="#" onclick="sortCodes('status'); return false;">Status ${sortField === 'status' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
+        html += '<th>Notes</th>';
         html += '</tr>';
         
         allCodes.forEach(code => {
@@ -260,7 +295,6 @@
           
           html += `<td>${code['backer-id']}</td>`;
           html += `<td>${code['admin-name'] || ''}</td>`;
-          html += `<td>${code.notes || ''}</td>`;
           
           // Make parcel-location a link if it exists
           if (code['parcel-location']) {
@@ -271,8 +305,18 @@
             html += `<td></td>`;
           }
           
-          // Status last (shows if parcel image file exists)
+          // Status
           html += `<td>${code.status}</td>`;
+          
+          // Notes last (all the way to the right)
+          const notes = code.notes || '';
+          if (notes.length > 20) {
+            const truncated = notes.substring(0, 20);
+            const escapedNotes = notes.replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
+            html += `<td>${truncated}<a href="#" onclick="showNotesPopup('${escapedNotes}'); return false;">...</a></td>`;
+          } else {
+            html += `<td>${notes}</td>`;
+          }
           
           html += '</tr>';
         });
