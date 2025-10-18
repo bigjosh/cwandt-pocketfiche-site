@@ -150,26 +150,22 @@ def is_parcel_claimable_maxzoom_coords(x: int, y: int) -> Optional[str]:
     # Generate and return the parcel label
     return parcel_name(row, col)
 
-def get_placeholder_tile_path(output_dir: Path) -> Path:
-    """Get path to the placeholder tile file."""
-    return output_dir / "placeholder_tile.png"
+# --- Create a 1-bit TILE_SIZE x TILE_SIZE   image ---
+# Mode '1' is a 1-bit, black-and-white image.
+# We initialize the background color to 1 (which corresponds to white).
+placeholder_img = Image.new('RGBA', (1, 1), (255, 255,255, 0))  # white
 
-def generate_placeholder_tile_file(output_dir: Path) -> None:
-    """Generate a TILE_SIZE x TILE_SIZE transparent PNG tile."""
-    placeholder_path = get_placeholder_tile_path(output_dir)
-    placeholder_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # from gemini 2.5    
-    # --- Create a 1-bit TILE_SIZE x TILE_SIZE   image ---
-    # Mode '1' is a 1-bit, black-and-white image.
-    # We initialize the background color to 1 (which corresponds to white).
-    img = Image.new('RGBA', (1, 1), (255, 255,255, 0))  # white
-
-    # --- Save the image as PNG ---
-    # By setting 'transparency=1', we tell the PNG saver to
-    # make the color '1' (white) fully transparent.
-    # The color '0' (black) will remain opaque.
-    img.save(placeholder_path, 'PNG' ,optimize=True)    
+def is_placeholder(img: Image.Image) -> bool:
+    """Check if an image is a placeholder (1x1 transparent pixel).
+    
+    Args:
+        img: PIL Image to check
+        
+    Returns:
+        True if image is 1x1, False otherwise
+    """
+    return img.size == (1, 1)
 
 
 def maxzoom_tile_coords_to_label(x: int, y: int) -> Optional[str]:
@@ -249,6 +245,7 @@ def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Imag
     
     # Each tile at zoom Z corresponds to 4 tiles at zoom Z+1
     child_tiles = []
+    all_children_are_placeholders = True
     for dy in range(2):
         row = []
         for dx in range(2):
@@ -261,6 +258,10 @@ def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Imag
 
             # Open and convert to RGBA to preserve transparency
             child_img = Image.open(child_path)
+
+            # Check if this child is a placeholder
+            if not is_placeholder(child_img):
+                all_children_are_placeholders = False
             
             # For 1-bit images with transparency, we need to handle it specially
             if child_img.mode == '1' and 'transparency' in child_img.info:
@@ -284,17 +285,11 @@ def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Imag
         
         child_tiles.append(row)
     
-    # # Check if all children are empty (transparent)
-    # all_empty = all(
-    #     img.getbbox() is None 
-    #     for row in child_tiles 
-    #     for img in row
-    # )
-    # if all_empty:
-    #     return None
+    # Optimization: If all 4 children are placeholders (1x1 transparent), 
+    # return the placeholder directly instead of combining them
+    if all_children_are_placeholders:
+        return placeholder_img
     
-    # TODO: MAYBE HERE WE COULD CHECK IF THE 4 child tiles are placeholders and then use the placeholder for this tile too maybe it will be smaller?
-
     # Combine 4 tiles into one 1000x1000 image
     combined = Image.new('RGBA', (TILE_SIZE * 2, TILE_SIZE * 2), (0, 0, 0, 0))
     for dy in range(2):
@@ -445,9 +440,8 @@ def incremental_update_image_tile_at_maxzoom(x: int, y: int, parcels_dir: Path, 
 
     if not parcel_exists:
         # tile gets a placeholder (already optimized, don't compress)
-        placeholder_path = get_placeholder_tile_path(output_dir)
         image_tile_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(placeholder_path, image_tile_path)
+        placeholder_img.save(image_tile_path, 'PNG', optimize=True)
         return None  # Don't add to compression list
 
     # just a normal parcel to a tile
@@ -514,6 +508,9 @@ def incremental_update_tile_at_zoom(zoom: int, x: int, y: int, layer_root: Path,
     Checks timestamps of all 4 child tiles and rebuilds parent tile only if
     at least one child is newer than the parent.
     
+    Optimization: If all 4 children are placeholders, just copy the placeholder
+    instead of combining 4 tiny transparent images.
+    
     Args:
         zoom: Zoom level to rebuild
         x: Tile x coordinate
@@ -541,13 +538,12 @@ def incremental_update_tile_at_zoom(zoom: int, x: int, y: int, layer_root: Path,
             child_mtime = get_mtime(child_path)
             if child_mtime > parent_mtime:
                 needs_rebuild = True
-                break
-        if needs_rebuild:
-            break
     
     if needs_rebuild:
         # print(f"🔨 Rebuilding tile {zoom}/{x}/{y}")
+
         rebuild_tile_at_zoom(zoom, x, y, layer_root)
+
         if changed_tiles is not None:
             changed_tiles.append(parent_path)
         return True
@@ -649,8 +645,7 @@ def generate_labels_maxzoom(output_dir: Path):
                 labels_created += 1
             else:
                 # Copy placeholder tile file for non-claimable positions
-                placeholder_path = get_placeholder_tile_path(output_dir)
-                shutil.copy(placeholder_path, label_path)
+                placeholder_img.save(label_path, 'PNG', optimize=True)
                 transparent_created += 1
     
     print(f"   Created {labels_created} label tiles and {transparent_created} transparent tiles")
@@ -664,12 +659,7 @@ def init_output_dir(output_dir: Path):
     if output_dir.exists():
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # we will use this to fill in any MAXZOOM tile that does not have a proper source,
-    # so either an image tile that no parcel exists for, or a label tile for non-claimable parcels
-    print("🔨 Generating placeholder tile file...")
-    generate_placeholder_tile_file(output_dir)
-    
+        
     # note that we do not need to explicitly rebuild the labels tree here since we deleted the output dir so all
     # the labels will anturally get rebuilt
     
