@@ -281,6 +281,7 @@
         html += `<th><a href="#" onclick="sortCodes('code'); return false;">Code ${sortField === 'code' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += `<th><a href="#" onclick="sortCodes('backer-id'); return false;">Backer ID ${sortField === 'backer-id' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += `<th><a href="#" onclick="sortCodes('admin-name'); return false;">Created By ${sortField === 'admin-name' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
+        html += `<th><a href="#" onclick="sortCodes('timestamp'); return false;">Created ${sortField === 'timestamp' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += `<th><a href="#" onclick="sortCodes('parcel-location'); return false;">Location ${sortField === 'parcel-location' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += `<th><a href="#" onclick="sortCodes('status'); return false;">Status ${sortField === 'status' ? (sortAscending ? '▲' : '▼') : ''}</a></th>`;
         html += '<th>Notes</th>';
@@ -295,6 +296,15 @@
           
           html += `<td>${code['backer-id']}</td>`;
           html += `<td>${code['admin-name'] || ''}</td>`;
+          
+          // Format timestamp in ISO 8601 (truncate milliseconds and zone)
+          const timestamp = code.timestamp;
+          let formattedDate = '';
+          if (timestamp) {
+            const date = new Date(timestamp * 1000); // Convert Unix timestamp to milliseconds
+            formattedDate = date.toISOString().split('.')[0]; // Remove .000Z
+          }
+          html += `<td>${formattedDate}</td>`;
           
           // Make parcel-location a link if it exists
           if (code['parcel-location']) {
@@ -342,6 +352,14 @@
         let aVal = a[field] || '';
         let bVal = b[field] || '';
         
+        // Numeric sort for timestamp
+        if (field === 'timestamp') {
+          aVal = a[field] || 0;
+          bVal = b[field] || 0;
+          return sortAscending ? aVal - bVal : bVal - aVal;
+        }
+        
+        // String sort for other fields
         if (sortAscending) {
           return aVal.localeCompare(bVal);
         } else {

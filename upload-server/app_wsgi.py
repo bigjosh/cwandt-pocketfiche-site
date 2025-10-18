@@ -459,6 +459,9 @@ def handle_get_codes(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]
     for access_file in access_dir.glob('*.txt'):
         code = access_file.stem
         
+        # Get timestamp from file modification time
+        timestamp = int(access_file.stat().st_mtime)
+        
         # Read access file
         # Format: line 0 = backer-id, line 1 = admin-name, line 2+ = notes (can have newlines)
         content = access_file.read_text(encoding='utf-8')
@@ -488,7 +491,8 @@ def handle_get_codes(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]
             'admin-name': admin_name,
             'notes': notes,
             'parcel-location': parcel_location,
-            'status': status
+            'status': status,
+            'timestamp': timestamp
         })
     
     return send_json({'status': 'success', 'codes': codes})

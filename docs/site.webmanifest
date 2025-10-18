@@ -1,1 +1,5 @@
-{"CW and T Pocket Fiche Project":"","pocketfiche":"","icons":[{"src":"/android-chrome-192x192.png","sizes":"192x192","type":"image/png"},{"src":"/android-chrome-512x512.png","sizes":"512x512","type":"image/png"}],"theme_color":"#ffffff","background_color":"#ffffff","display":"standalone"}
+# C:\inetpub\cgi-bin\hello.py
+import cgi
+name = cgi.FieldStorage().getfirst("name","world")
+print("Content-Type: text/plain; charset=utf-8"); print()
+print(f"hello {name}")

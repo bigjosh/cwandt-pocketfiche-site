@@ -476,6 +476,9 @@ def handle_get_codes(form: cgi.FieldStorage, data_dir: Path) -> None:
         for access_file in sorted(access_dir.glob('*.txt')):
             code = access_file.stem  # filename without .txt
             
+            # Get timestamp from file modification time
+            timestamp = int(access_file.stat().st_mtime)
+            
             # Read backer-id, admin-name, and notes from access file
             # Format: line 1 = backer-id, line 2 = admin-name, rest = notes (can have newlines)
             content = access_file.read_text(encoding='utf-8')
@@ -505,7 +508,8 @@ def handle_get_codes(form: cgi.FieldStorage, data_dir: Path) -> None:
                 'backer-id': backer_id,
                 'admin-name': creator_admin_name,
                 'notes': notes,
-                'status': status
+                'status': status,
+                'timestamp': timestamp
             }
             
             if parcel_location:
