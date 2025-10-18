@@ -463,6 +463,11 @@
     
     // Handle file selection
     function handleFile(file) {
+      console.log('=== File Selected ===');
+      console.log('File name:', file.name);
+      console.log('File size:', file.size, 'bytes');
+      console.log('File type:', file.type);
+      
       // Validate file type
       if (!file.type.startsWith('image/')) {
         showError('Please select an image file');
@@ -526,6 +531,10 @@
               return;
             }
             
+            console.log('=== Image Processed ===');
+            console.log('Processed blob size:', blob.size, 'bytes');
+            console.log('Blob type:', blob.type);
+            
             processedImageBlob = blob;
             
             // Show preview
@@ -584,6 +593,11 @@
       uploadBtn.textContent = 'Uploading...';
       
       try {
+        console.log('=== Starting Upload ===');
+        console.log('Code:', code);
+        console.log('Location:', location);
+        console.log('Image blob size:', processedImageBlob.size, 'bytes');
+        
         // Create form data
         const formData = new FormData();
         formData.append('command', 'upload');
@@ -591,14 +605,23 @@
         formData.append('parcel-location', location);
         formData.append('image', processedImageBlob, 'parcel.png');
         
+        console.log('FormData created with image blob');
+        console.log('Sending POST request...');
+        
         // Send POST request
         const response = await fetch('cgi-bin/app.py', {
           method: 'POST',
           body: formData
         });
         
+        console.log('Response status:', response.status);
+        console.log('Response headers:', [...response.headers.entries()]);
+        
         // Always parse JSON response (server always returns JSON)
         const data = await response.json();
+        
+        console.log('=== Response Received ===');
+        console.log('Response data:', data);
         
         if (data.status === 'success') {
           // Show success with uploaded image

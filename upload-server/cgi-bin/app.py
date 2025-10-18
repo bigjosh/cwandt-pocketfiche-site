@@ -617,14 +617,21 @@ def handle_upload(form: cgi.FieldStorage, data_dir: Path) -> None:
         send_json({'status': 'error', 'message': 'No image provided'})
         return
     
+    # Debug: Check if file_item has length info
+    print(f"DEBUG: file_item type: {type(file_item.file)}", file=sys.stderr)
+    print(f"DEBUG: file_item.filename: {file_item.filename}", file=sys.stderr)
+    
     # Read image data in chunks to ensure we get everything (CGI/ARR buffering issue)
     # Force complete read by reading in loop until EOF
     chunks = []
+    total_read = 0
     while True:
         chunk = file_item.file.read(8192)  # Read 8KB chunks
         if not chunk:
             break
         chunks.append(chunk)
+        total_read += len(chunk)
+        print(f"DEBUG: Read chunk {len(chunks)}: {len(chunk)} bytes (total so far: {total_read})", file=sys.stderr)
     image_data = b''.join(chunks)
     
     # Log received image size for debugging
@@ -677,8 +684,28 @@ def main() -> None:
     # Get data directory
     data_dir = get_data_dir()
     
-    # Parse form data
-    form = cgi.FieldStorage()
+    # Debug: Log request info
+    content_length_str = os.environ.get('CONTENT_LENGTH', '0')
+    content_length = int(content_length_str) if content_length_str.isdigit() else 0
+    print(f"DEBUG: CONTENT_LENGTH = {content_length}", file=sys.stderr)
+    print(f"DEBUG: CONTENT_TYPE = {os.environ.get('CONTENT_TYPE', 'NOT SET')}", file=sys.stderr)
+    print(f"DEBUG: REQUEST_METHOD = {os.environ.get('REQUEST_METHOD', 'NOT SET')}", file=sys.stderr)
+    
+    # For POST requests with content, force complete stdin reading before FieldStorage
+    # This works around CGI buffering issues where stdin might not be fully available
+    if content_length > 0 and os.environ.get('REQUEST_METHOD') == 'POST':
+        # Read all of stdin into memory first
+        stdin_data = sys.stdin.buffer.read(content_length)
+        print(f"DEBUG: Read {len(stdin_data)} bytes from stdin (expected {content_length})", file=sys.stderr)
+        
+        # Create a BytesIO object with the data
+        stdin_buffer = io.BytesIO(stdin_data)
+        
+        # Parse form data from our buffer instead of stdin
+        form = cgi.FieldStorage(fp=stdin_buffer, environ=os.environ)
+    else:
+        # For GET requests or no content, use default stdin
+        form = cgi.FieldStorage()
     
     # Get command parameter
     command = form.getfirst('command', '').strip()

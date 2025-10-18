@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Upload Debug</title>
+  <style>
+    body {
+      font-family: monospace;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+    }
+    .form-group {
+      margin: 20px 0;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    input[type="file"] {
+      display: block;
+      margin: 10px 0;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    #response {
+      margin-top: 30px;
+      padding: 20px;
+      background: #f5f5f5;
+      border: 1px solid #ccc;
+      white-space: pre-wrap;
+      font-family: monospace;
+      display: none;
+    }
+    #info {
+      margin-top: 20px;
+      padding: 10px;
+      background: #e7f3ff;
+      border: 1px solid #b3d9ff;
+    }
+  </style>
+</head>
+<body>
+  <h1>Test Upload Debug Script</h1>
+  <p>This form will upload an image to test_upload_debug.py to check stdin reading.</p>
+  
+  <div id="info">
+    <strong>File Info:</strong>
+    <div id="file-info">No file selected</div>
+  </div>
+  
+  <form id="upload-form" method="POST" action="cgi-bin/test_upload_debug.py" enctype="multipart/form-data">
+    <div class="form-group">
+      <label for="image">Select Image File:</label>
+      <input type="file" id="image" name="image" accept="image/*" required>
+    </div>
+    
+    <div class="form-group">
+      <label for="test-field">Test Field (optional):</label>
+      <input type="text" id="test-field" name="test-field" placeholder="Some text data">
+    </div>
+    
+    <button type="submit">Upload and Test</button>
+  </form>
+  
+  <div id="response"></div>
+  
+  <script>
+    const fileInput = document.getElementById('image');
+    const fileInfo = document.getElementById('file-info');
+    const form = document.getElementById('upload-form');
+    const responseDiv = document.getElementById('response');
+    
+    // Show file info when selected
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        const file = e.target.files[0];
+        fileInfo.innerHTML = `
+          <strong>Name:</strong> ${file.name}<br>
+          <strong>Size:</strong> ${file.size} bytes<br>
+          <strong>Type:</strong> ${file.type}
+        `;
+        console.log('File selected:', file);
+      } else {
+        fileInfo.textContent = 'No file selected';
+      }
+    });
+    
+    // Handle form submission with fetch to show response
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      console.log('=== Submitting form ===');
+      
+      const formData = new FormData(form);
+      const file = fileInput.files[0];
+      
+      console.log('File size:', file.size, 'bytes');
+      console.log('Submitting to:', form.action);
+      
+      try {
+        const response = await fetch(form.action, {
+          method: 'POST',
+          body: formData
+        });
+        
+        console.log('Response status:', response.status);
+        console.log('Response headers:', [...response.headers.entries()]);
+        
+        const text = await response.text();
+        
+        console.log('Response body length:', text.length);
+        console.log('Response body:', text);
+        
+        responseDiv.textContent = text;
+        responseDiv.style.display = 'block';
+        
+      } catch (error) {
+        console.error('Error:', error);
+        responseDiv.textContent = `Error: ${error.message}`;
+        responseDiv.style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>
