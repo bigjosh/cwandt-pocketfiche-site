@@ -33,6 +33,7 @@ import re
 import secrets
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -138,6 +139,7 @@ def send_json(data: dict) -> None:
     print("Content-Type: application/json; charset=utf-8")
     print()
     print(json.dumps(data))
+    sys.stdout.flush()  # Ensure response is sent immediately
 
 
 def atomic_add_file(file_path: Path, content: str) -> Tuple[bool, Optional[str]]:
@@ -341,6 +343,12 @@ def validate_and_convert_image(image_data: bytes) -> Tuple[bool, Optional[str], 
         converted_data = output.getvalue()
         
         print(f"DEBUG: Converted image size: {len(converted_data)} bytes", file=sys.stderr)
+        
+        # Sanity check: converted image should not be empty and not unreasonably large
+        if len(converted_data) == 0:
+            return (False, "Image conversion failed - empty output", None)
+        if len(converted_data) > 10 * 1024 * 1024:  # 10MB max
+            return (False, f"Converted image too large: {len(converted_data)} bytes", None)
         
         return (True, None, converted_data)
         
@@ -676,7 +684,10 @@ def handle_upload(form: cgi.FieldStorage, data_dir: Path) -> None:
     if not success:
         # Location already taken - rollback location file only if we created it
         if not location_was_preassigned:
-            location_file.unlink()
+            try:
+                location_file.unlink()
+            except Exception as e:
+                print(f"WARNING: Failed to rollback location file: {e}", file=sys.stderr)
         send_json({'status': 'taken', 'location': parcel_location})
         return
     
@@ -699,11 +710,54 @@ def main() -> None:
     # For POST requests with content, force complete stdin reading before FieldStorage
     # This works around CGI buffering issues where stdin might not be fully available
     if content_length > 0 and os.environ.get('REQUEST_METHOD') == 'POST':
-        # Read all of stdin into memory first
-        stdin_data = sys.stdin.buffer.read(content_length)
-        print(f"DEBUG: Read {len(stdin_data)} bytes from stdin (expected {content_length})", file=sys.stderr)
+        # Read all of stdin into memory, with retry logic for slow proxies (ARR)
+        # ARR may not have fully buffered the request, so we need to keep trying
+        stdin_data = b''
+        remaining = content_length
+        max_attempts = 50  # Try for up to ~5 seconds
+        attempt = 0
+        empty_reads = 0
+        max_empty_reads = 20  # Give up after 20 consecutive empty reads (2 seconds)
         
-        # Create a BytesIO object with the data
+        while remaining > 0 and attempt < max_attempts:
+            attempt += 1
+            chunk = sys.stdin.buffer.read(remaining)
+            
+            if chunk:
+                stdin_data += chunk
+                remaining -= len(chunk)
+                empty_reads = 0  # Reset empty read counter
+                print(f"DEBUG: Read attempt {attempt}: got {len(chunk)} bytes, total: {len(stdin_data)}/{content_length}", file=sys.stderr)
+                
+                # If we got all data, break immediately
+                if remaining == 0:
+                    break
+            else:
+                # No data available, wait a bit for ARR to buffer more
+                empty_reads += 1
+                print(f"DEBUG: Empty read {empty_reads}/{max_empty_reads}, waiting for more data... ({len(stdin_data)}/{content_length} bytes so far)", file=sys.stderr)
+                
+                # Give up if too many consecutive empty reads
+                if empty_reads >= max_empty_reads:
+                    print(f"ERROR: Giving up after {empty_reads} consecutive empty reads", file=sys.stderr)
+                    break
+                    
+                time.sleep(0.1)  # Wait 100ms before next attempt
+        
+        print(f"DEBUG: Final read: {len(stdin_data)} bytes from stdin (expected {content_length})", file=sys.stderr)
+        
+        # ERROR if incomplete - don't try to process truncated data
+        if len(stdin_data) < content_length:
+            missing = content_length - len(stdin_data)
+            print(f"ERROR: Incomplete stdin read - missing {missing} bytes after {attempt} attempts", file=sys.stderr)
+            send_json({
+                'status': 'error',
+                'message': f'Upload failed: incomplete data received ({len(stdin_data)}/{content_length} bytes). Please try again.',
+                'code': 400
+            })
+            return  # Exit main() without processing
+        
+        # Create a BytesIO object with the complete data
         stdin_buffer = io.BytesIO(stdin_data)
         
         # Parse form data from our buffer instead of stdin

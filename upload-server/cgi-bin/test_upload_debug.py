@@ -44,7 +44,8 @@ def main():
     try:
         stdin_data = sys.stdin.buffer.read(expected_bytes)
         print(f"Bytes read: {len(stdin_data)}")
-        print(f"Match: {'✓ YES' if len(stdin_data) == expected_bytes else '✗ NO - TRUNCATED!'}")
+        match_result = "YES - COMPLETE" if len(stdin_data) == expected_bytes else "NO - TRUNCATED"
+        print(f"Match: {match_result}")
         print()
         
         # Test 2: Parse with cgi.FieldStorage using our buffer
