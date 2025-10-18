@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 from typing import Optional, Tuple
 from urllib.parse import parse_qs
+import mimetypes
 
 try:
     from PIL import Image, ImageFile
@@ -566,6 +567,49 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
     return send_json({'status': 'success', 'location': parcel_location})
 
 
+def serve_static_file(file_path: Path) -> Tuple[str, list, bytes]:
+    """Serve a static file.
+    
+    Args:
+        file_path: Path to the file to serve
+        
+    Returns:
+        Tuple of (status, headers, body)
+    """
+    try:
+        # Check if file exists
+        if not file_path.exists() or not file_path.is_file():
+            body = b'404 Not Found'
+            headers = [
+                ('Content-Type', 'text/plain'),
+                ('Content-Length', str(len(body)))
+            ]
+            return ('404 Not Found', headers, body)
+        
+        # Read file
+        body = file_path.read_bytes()
+        
+        # Determine content type
+        content_type, _ = mimetypes.guess_type(str(file_path))
+        if not content_type:
+            content_type = 'application/octet-stream'
+        
+        headers = [
+            ('Content-Type', content_type),
+            ('Content-Length', str(len(body)))
+        ]
+        
+        return ('200 OK', headers, body)
+        
+    except Exception as e:
+        body = f'Error reading file: {str(e)}'.encode('utf-8')
+        headers = [
+            ('Content-Type', 'text/plain'),
+            ('Content-Length', str(len(body)))
+        ]
+        return ('500 Internal Server Error', headers, body)
+
+
 def parse_multipart(environ) -> Tuple[dict, dict]:
     """Parse multipart form data from WSGI environ.
     
@@ -623,20 +667,48 @@ def parse_multipart(environ) -> Tuple[dict, dict]:
 def application(environ, start_response):
     """WSGI application entry point."""
     try:
-        # Get data directory
-        data_dir = get_data_dir()
-        
         # Log request
         method = environ.get('REQUEST_METHOD', 'GET')
         path = environ.get('PATH_INFO', '/')
-        print(f"DEBUG: {method} {path}", file=sys.stderr)
+        query_string = environ.get('QUERY_STRING', '')
+        print(f"DEBUG: {method} {path}{'?' + query_string if query_string else ''}", file=sys.stderr)
+        
+        # Check if this is a static file request (no command parameter)
+        # This handles requests like /admin.html or /upload.html
+        if method == 'GET' and 'command=' not in query_string:
+            # Strip leading slash
+            requested_file = path.lstrip('/')
+            
+            # If no file specified or root, don't serve anything
+            if not requested_file or requested_file == '/':
+                status, headers, body = send_error('No file specified', 400)
+                start_response(status, headers)
+                return [body]
+            
+            # Security: Only allow serving files from the app directory
+            # No directory traversal allowed
+            if '..' in requested_file or requested_file.startswith('/'):
+                status, headers, body = send_error('Invalid file path', 403)
+                start_response(status, headers)
+                return [body]
+            
+            # Get the directory where this script is located
+            app_dir = Path(__file__).parent
+            file_path = app_dir / requested_file
+            
+            # Serve the static file
+            status, headers, body = serve_static_file(file_path)
+            start_response(status, headers)
+            return [body]
+        
+        # API request - get data directory
+        data_dir = get_data_dir()
         
         # Parse form data
         if method == 'POST':
             form_data, file_data = parse_multipart(environ)
         elif method == 'GET':
             # Parse query string
-            query_string = environ.get('QUERY_STRING', '')
             form_data = parse_qs(query_string)
             file_data = {}
         else:

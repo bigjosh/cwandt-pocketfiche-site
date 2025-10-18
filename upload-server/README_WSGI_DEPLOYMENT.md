@@ -11,12 +11,20 @@ The CGI implementation had issues with ARR buffering causing uploaded images to 
 **Before (CGI):**
 ```
 Browser → IIS → CGI Handler → app.py (CGI script)
+         → IIS (static files)
 ```
 
 **After (Waitress):**
 ```
-Browser → IIS → ARR Proxy → Waitress → app_wsgi.py (WSGI app)
+Browser → IIS → ARR Proxy → Waitress → app_wsgi.py (WSGI app + static files)
 ```
+
+## Features
+
+- **API endpoints**: All commands (generate-code, upload, get-codes, etc.)
+- **Static file serving**: admin.html, upload.html served by Waitress
+- **No truncation**: Proper request buffering for uploads
+- **Production ready**: Multi-threaded WSGI server
 
 ## Installation Steps
 
@@ -138,6 +146,31 @@ Edit `server.py` to change:
 - `recv_bytes` - Receive buffer size (default: 64KB)
 - `send_bytes` - Send buffer size (default: 64KB)
 - `threads` - Number of worker threads (default: 4)
+
+## Static File Serving
+
+Waitress now serves static HTML files directly:
+
+**Available URLs:**
+- `http://yourdomain.com/admin.html` - Admin interface
+- `http://yourdomain.com/upload.html` - Upload interface (with ?code=XXX parameter)
+- `http://yourdomain.com/cgi-bin/app.py?command=...` - API endpoint
+
+**How it works:**
+- GET requests without `command=` parameter are treated as static file requests
+- Only files in the same directory as `app_wsgi.py` are served
+- Directory traversal is blocked for security
+- Proper MIME types are set (text/html, image/png, etc.)
+
+**Security:**
+- No `..` path traversal allowed
+- Only serves files from app directory
+- Admin auth still required for admin APIs
+
+**Supported files:**
+- `admin.html` - Admin interface for managing codes
+- `upload.html` - Upload interface for backers
+- Any other files in the app directory (CSS, JS, images, etc.)
 
 ## Troubleshooting
 
