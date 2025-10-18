@@ -247,7 +247,10 @@ def atomic_add_binary_file(file_path: Path, content: bytes) -> Tuple[bool, bool]
     
     try:
         # Write content to temp file
+        print(f"DEBUG: Writing {len(content)} bytes to {file_path.name}", file=sys.stderr)
         temp_path.write_bytes(content)
+        bytes_written = temp_path.stat().st_size
+        print(f"DEBUG: Temp file size on disk: {bytes_written} bytes", file=sys.stderr)
         
         # Try to rename (atomic operation on most filesystems)
         try:
@@ -336,6 +339,8 @@ def validate_and_convert_image(image_data: bytes) -> Tuple[bool, Optional[str], 
         output = io.BytesIO()
         img.save(output, format='PNG', optimize=True)
         converted_data = output.getvalue()
+        
+        print(f"DEBUG: Converted image size: {len(converted_data)} bytes", file=sys.stderr)
         
         return (True, None, converted_data)
         
