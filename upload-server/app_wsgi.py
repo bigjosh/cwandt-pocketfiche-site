@@ -376,19 +376,20 @@ def handle_generate_code(form_data: dict, data_dir: Path) -> Tuple[str, list, by
             # Create access file
             access_file.parent.mkdir(parents=True, exist_ok=True)
             
-            # Write backer-id, optional notes, optional parcel-location
-            content_lines = [backer_id]
-            
+            # Write backer-id, admin-name, notes to access file
+            # Format: line 0 = backer-id, line 1 = admin-name, line 2 = notes (NO field name prefixes)
             # Get admin name from admin file
             admin_file = data_dir / 'admins' / f'{admin_id}.txt'
             if admin_file.exists():
-                admin_name = admin_file.read_text(encoding='utf-8').strip()
-                content_lines.append(f"admin-name:{admin_name}")
+                admin_name = admin_file.read_text(encoding='utf-8').split('\n', 1)[0].strip()
+                if not admin_name:
+                    admin_name = "[Could not read admin name]"
+            else:
+                admin_name = "[Could not read admin name]"
             
-            if notes:
-                content_lines.append(f"notes:{notes}")
-            
-            access_file.write_text('\n'.join(content_lines), encoding='utf-8')
+            # Write: line 0=backer_id, line 1=admin_name, line 2=notes
+            content = f"{backer_id}\n{admin_name}\n{notes}"
+            access_file.write_text(content, encoding='utf-8')
             
             # If parcel location specified, pre-assign it
             if parcel_location:
@@ -418,17 +419,12 @@ def handle_get_codes(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]
         code = access_file.stem
         
         # Read access file
-        lines = access_file.read_text(encoding='utf-8').strip().split('\n')
-        backer_id = lines[0] if lines else ''
-        
-        # Parse optional fields
-        admin_name = ''
-        notes = ''
-        for line in lines[1:]:
-            if line.startswith('admin-name:'):
-                admin_name = line[len('admin-name:'):].strip()
-            elif line.startswith('notes:'):
-                notes = line[len('notes:'):].strip()
+        # Format: line 0 = backer-id, line 1 = admin-name, line 2+ = notes (can have newlines)
+        content = access_file.read_text(encoding='utf-8')
+        lines = content.split('\n', 2)
+        backer_id = lines[0].strip() if len(lines) > 0 else ''
+        admin_name = lines[1].strip() if len(lines) > 1 else ''
+        notes = lines[2].strip() if len(lines) > 2 else ''
         
         # Check if location file exists
         location_file = data_dir / 'locations' / f'{code}.txt'
