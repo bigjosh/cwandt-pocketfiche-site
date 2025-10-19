@@ -263,38 +263,41 @@ def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Imag
             if not tile_path.exists():
                 raise Exception(f"MAX_ZOOM tile {tile_path} does not exist")
             
-            # Open and convert to RGBA
+            # Open and convert to LA (Luminance + Alpha)
             tile_img = Image.open(tile_path)
             
             # Check if this is a placeholder
             if not is_placeholder(tile_img):
                 all_placeholders = False
             
-            # For 1-bit images with transparency, handle specially
+            # Convert to LA mode (Luminance + Alpha) for monochrome images
+            # This uses 2 bytes/pixel instead of 4 bytes/pixel (RGBA), saving 50% memory
             if tile_img.mode == '1' and 'transparency' in tile_img.info:
+                # For 1-bit with transparency, manually convert to LA
                 gray = tile_img.convert('L')
-                tile_rgba = Image.new('RGBA', tile_img.size)
-                pixels = tile_rgba.load()
+                tile_la = Image.new('LA', tile_img.size)
+                pixels = tile_la.load()
                 gray_pixels = gray.load()
                 for py in range(tile_img.height):
                     for px in range(tile_img.width):
                         if gray_pixels[px, py] == 255:  # White pixel
-                            pixels[px, py] = (255, 255, 255, 0)  # Transparent
+                            pixels[px, py] = (255, 0)  # White with transparent alpha
                         else:  # Black pixel
-                            pixels[px, py] = (0, 0, 0, 255)  # Opaque black
+                            pixels[px, py] = (0, 255)  # Black with opaque alpha
             else:
-                tile_rgba = tile_img.convert('RGBA')
+                # For other modes, convert to LA
+                tile_la = tile_img.convert('LA')
             
-            row.append(tile_rgba)
+            row.append(tile_la)
         maxzoom_tiles.append(row)
     
     # Optimization: If all MAX_ZOOM tiles are placeholders, return placeholder
     if all_placeholders:
         return placeholder_img
     
-    # Combine all MAX_ZOOM tiles into one large image
+    # Combine all MAX_ZOOM tiles into one large image (using LA mode to save memory)
     combined_size = TILE_SIZE * tiles_per_side
-    combined = Image.new('RGBA', (combined_size, combined_size), (0, 0, 0, 0))
+    combined = Image.new('LA', (combined_size, combined_size), (0, 0))  # Black with transparent alpha
     
     for ty in range(tiles_per_side):
         for tx in range(tiles_per_side):
@@ -303,7 +306,7 @@ def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Imag
             combined.paste(maxzoom_tiles[ty][tx], (x_pos, y_pos), maxzoom_tiles[ty][tx])
     
     # Downsample directly to target size using LANCZOS
-    # (resize preserves RGBA mode, so no conversion needed)
+    # (resize preserves LA mode, so no conversion needed)
     scaled = combined.resize((TILE_SIZE, TILE_SIZE), Image.Resampling.LANCZOS)
     
     return scaled
