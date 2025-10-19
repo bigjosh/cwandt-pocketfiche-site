@@ -27,7 +27,7 @@
     <form id="generate-form">
       <p>
         <label for="backer-id">Backer ID *</label><br>
-        <small style="color: red;">Required. Use BACK=backer, COMP=giveaway, TEST=testing, etc. Autoincrements.</small><br>
+        <small style="color: red;">Required. Freeform, but use backer number for backers. Autoincrements.</small><br>
         <input type="text" id="backer-id" name="backer-id" required placeholder="Enter backer identifier" />
       </p>
       
@@ -38,12 +38,13 @@
       
       <p>
         <label for="parcel-location">Parcel Location</label><br>
+        <small style="color: red;">Preallocates specified parcel for this access code.</small><br>
         <input type="text" id="parcel-location" name="parcel-location" 
                placeholder="e.g., A1, B12, AL38 (leave blank for new upload)" 
                pattern="[A-Za-z]{1,2}\d{1,2}" 
                />
         <br>
-        <small style="color: red;">Use this to migrate existing claimed parcels</small>
+        
       </p>
       
       <p>

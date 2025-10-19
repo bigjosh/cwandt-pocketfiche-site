@@ -510,7 +510,7 @@
   // Disk color constants for different zoom levels
   const goldColor   = '#b78727';   // Default gold color at parcel zoom - "University of California Gold"
   const cwandtColor = '#ff9412';   // CW&T orange at intermediate zoom
-  const sunColor    = '#FFCF37';   // Sun yellow at solar system zoom
+  const sunColor    = '#FFDF22';   // "Sun yellow" at solar system zoom
   
   // Create circle centered at origin (0, 0)
   // Default to gold color (will be updated dynamically based on zoom)
