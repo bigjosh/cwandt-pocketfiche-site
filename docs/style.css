@@ -130,7 +130,7 @@ body {
   font-family: 'Space Mono', monospace;
   font-weight: 400;
   font-size: 10px;
-  color: #333333; /* Dark gray, barely visible on black background */
+  color: #555555; /* Dark gray, barely visible on black background */
   pointer-events: none; /* Don't block map interactions */
   text-shadow: none; /* No glow, keep it subtle */
   text-align: center;
@@ -139,12 +139,12 @@ body {
 }
 
 #copyright-banner a {
-  color: #333333; /* Same dark gray */
+  color: #555555; /* Same dark gray */
   text-decoration: none;
   pointer-events: auto; /* Link should be clickable */
 }
 
 #copyright-banner a:hover {
-  color: #666666; /* Slightly lighter on hover */
+  color: #777777; /* Slightly lighter on hover */
   text-decoration: underline;
 }
