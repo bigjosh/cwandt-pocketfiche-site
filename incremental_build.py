@@ -25,20 +25,12 @@ import sys
 from pathlib import Path
 from typing import Optional, List
 
-try:
-    from PIL import Image, ImageDraw, ImageFont
-except ImportError:
-    print("Error: Pillow library required. Install with: pip install Pillow")
-    sys.exit(1)
-
-compression_enabled = False
+from PIL import Image, ImageDraw, ImageFont
 
 try:
     import oxipng
-    compression_enabled = True
-except ImportError as e:
-    print("Error: pip install pyoxipng")
-    compression_enabled = False
+except ImportError:
+    oxipng = None
 
 # Constants
 TILE_SIZE = 500  # All tiles are 500x500 pixels
@@ -798,7 +790,9 @@ def main() -> int:
     args = parser.parse_args()
     
     parcels_dir = Path(args.parcels_dir)
+    print(f"Parcels directory: {parcels_dir}")
     output_dir = Path(args.output_dir)
+    print(f"Output directory: {output_dir}")
     
     if args.init:
         init_output_dir(output_dir)
@@ -807,11 +801,10 @@ def main() -> int:
     compress = not args.no_compress
 
     if compress:
-        if compression_enabled:
-            print("Compression enabled")
-        else:
-            print("Can not compress PNG files, do `pip install pyoxipng`")
-            sys.exit(1)
+        if oxipng is None:
+            print("you need to do ` pip install pyoxipng`")
+            exit(1)
+        print("Compression enabled")
             
     return incremental_build(parcels_dir, output_dir, compress)
 
