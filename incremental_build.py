@@ -226,77 +226,86 @@ def create_label_tile_maxzoom(label: str) -> Image.Image:
 
 
 def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Image.Image:
-    """Create a tile by combining and scaling 4 child tiles from zoom+1.
+    """Create a tile by combining and downsampling from MAX_ZOOM tiles.
+    
+    Always downsamples directly from MAX_ZOOM to avoid compound downsampling artifacts.
+    For zoom 5, combines 2x2 MAX_ZOOM tiles.
+    For zoom 4, combines 4x4 MAX_ZOOM tiles.
+    For zoom 3, combines 8x8 MAX_ZOOM tiles, etc.
     
     Returns:
         PIL Image
     """
-
-    child_zoom = zoom + 1
-    child_zoom_dir = zoom_dir.parent / str(child_zoom)
     
-    # Each tile at zoom Z corresponds to 4 tiles at zoom Z+1
-    child_tiles = []
-    all_children_are_placeholders = True
-    for dy in range(2):
+    # Calculate how many MAX_ZOOM tiles contribute to this tile
+    zoom_diff = MAX_ZOOM - zoom
+    tiles_per_side = 2 ** zoom_diff  # 2, 4, 8, 16, 32, 64...
+    
+    # Calculate starting MAX_ZOOM coordinates
+    maxzoom_start_x = x * tiles_per_side
+    maxzoom_start_y = y * tiles_per_side
+    
+    # Get the MAX_ZOOM directory
+    layer_root = zoom_dir.parent
+    maxzoom_dir = layer_root / str(MAX_ZOOM)
+    
+    # Load all contributing MAX_ZOOM tiles
+    maxzoom_tiles = []
+    all_placeholders = True
+    
+    for ty in range(tiles_per_side):
         row = []
-        for dx in range(2):
-            child_x = x * 2 + dx
-            child_y = y * 2 + dy
+        for tx in range(tiles_per_side):
+            tile_x = maxzoom_start_x + tx
+            tile_y = maxzoom_start_y + ty
             
-            child_path = child_zoom_dir / str(child_x) / f"{child_y}.png"
-            if not child_path.exists():
-                raise Exception(f"Child tile {child_path} does not exist")
-
-            # Open and convert to RGBA to preserve transparency
-            child_img = Image.open(child_path)
-
-            # Check if this child is a placeholder
-            if not is_placeholder(child_img):
-                all_children_are_placeholders = False
+            tile_path = maxzoom_dir / str(tile_x) / f"{tile_y}.png"
+            if not tile_path.exists():
+                raise Exception(f"MAX_ZOOM tile {tile_path} does not exist")
             
-            # For 1-bit images with transparency, we need to handle it specially
-            if child_img.mode == '1' and 'transparency' in child_img.info:
-                # Convert to grayscale first to get the pixel values
-                gray = child_img.convert('L')
-                # Create RGBA with alpha channel based on white pixels
-                child_rgba = Image.new('RGBA', child_img.size)
-                pixels = child_rgba.load()
+            # Open and convert to RGBA
+            tile_img = Image.open(tile_path)
+            
+            # Check if this is a placeholder
+            if not is_placeholder(tile_img):
+                all_placeholders = False
+            
+            # For 1-bit images with transparency, handle specially
+            if tile_img.mode == '1' and 'transparency' in tile_img.info:
+                gray = tile_img.convert('L')
+                tile_rgba = Image.new('RGBA', tile_img.size)
+                pixels = tile_rgba.load()
                 gray_pixels = gray.load()
-                for py in range(child_img.height):
-                    for px in range(child_img.width):
+                for py in range(tile_img.height):
+                    for px in range(tile_img.width):
                         if gray_pixels[px, py] == 255:  # White pixel
                             pixels[px, py] = (255, 255, 255, 0)  # Transparent
                         else:  # Black pixel
                             pixels[px, py] = (0, 0, 0, 255)  # Opaque black
             else:
-                # For other formats, just convert to RGBA
-                child_rgba = child_img.convert('RGBA')
+                tile_rgba = tile_img.convert('RGBA')
             
-            row.append(child_rgba)
-        
-        child_tiles.append(row)
+            row.append(tile_rgba)
+        maxzoom_tiles.append(row)
     
-    # Optimization: If all 4 children are placeholders (1x1 transparent), 
-    # return the placeholder directly instead of combining them
-    if all_children_are_placeholders:
+    # Optimization: If all MAX_ZOOM tiles are placeholders, return placeholder
+    if all_placeholders:
         return placeholder_img
     
-    # Combine 4 tiles into one 1000x1000 image
-    combined = Image.new('RGBA', (TILE_SIZE * 2, TILE_SIZE * 2), (0, 0, 0, 0))
-    for dy in range(2):
-        for dx in range(2):
-            # Pass the image as mask to preserve alpha channel transparency
-            combined.paste(child_tiles[dy][dx], (dx * TILE_SIZE, dy * TILE_SIZE), child_tiles[dy][dx])
+    # Combine all MAX_ZOOM tiles into one large image
+    combined_size = TILE_SIZE * tiles_per_side
+    combined = Image.new('RGBA', (combined_size, combined_size), (0, 0, 0, 0))
     
-    # Scale down to TILE_SIZE x TILE_SIZE using high-quality resampling (anti-aliasing)
-    # LANCZOS properly handles alpha channel in RGBA mode
+    for ty in range(tiles_per_side):
+        for tx in range(tiles_per_side):
+            x_pos = tx * TILE_SIZE
+            y_pos = ty * TILE_SIZE
+            combined.paste(maxzoom_tiles[ty][tx], (x_pos, y_pos), maxzoom_tiles[ty][tx])
+    
+    # Downsample directly to target size using LANCZOS
+    # (resize preserves RGBA mode, so no conversion needed)
     scaled = combined.resize((TILE_SIZE, TILE_SIZE), Image.Resampling.LANCZOS)
     
-    # Ensure we're returning RGBA mode
-    if scaled.mode != 'RGBA':
-        scaled = scaled.convert('RGBA')
-            
     return scaled
 
 
