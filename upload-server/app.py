@@ -22,33 +22,20 @@ import io
 import json
 import math
 import os
-import re
 import secrets
 import sys
 import tempfile
-import time
 from pathlib import Path
 from typing import Optional, Tuple
 from urllib.parse import parse_qs
 import mimetypes
 
-try:
-    from PIL import Image, ImageFile
-    # Allow loading of truncated images (sometimes happens during upload)
-    ImageFile.LOAD_TRUNCATED_IMAGES = True
-except ImportError:
-    # Will error later if image validation is needed
-    Image = None
+from PIL import Image
+# Allow loading of truncated images (sometimes happens during upload)
+# ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-# Try to import werkzeug for better multipart handling
-try:
-    from werkzeug.formparser import parse_form_data
-    from werkzeug.datastructures import FileStorage
-    HAS_WERKZEUG = True
-except ImportError:
-    # Fall back to cgi module
-    import cgi
-    HAS_WERKZEUG = False
+from werkzeug.formparser import parse_form_data
+from werkzeug.datastructures import FileStorage
 
 # Constants
 CODE_LENGTH = 8
@@ -675,52 +662,20 @@ def parse_multipart(environ) -> Tuple[dict, dict]:
     Returns:
         Tuple of (form_data dict, file_data dict)
     """
-    if HAS_WERKZEUG:
-        # Use werkzeug for better multipart handling
-        stream, form, files = parse_form_data(environ)
-        
-        # Convert to dict format
-        form_data = {}
-        for key in form.keys():
-            form_data[key] = form.getlist(key)
-        
-        file_data = {}
-        for key in files.keys():
-            file_storage = files[key]
-            file_data[key] = file_storage.read()
-        
-        return (form_data, file_data)
-    else:
-        # Fall back to cgi.FieldStorage
-        from io import BytesIO
-        
-        # Create a file-like object from wsgi.input
-        content_length = int(environ.get('CONTENT_LENGTH', 0))
-        if content_length > 0:
-            body = environ['wsgi.input'].read(content_length)
-            environ['wsgi.input'] = BytesIO(body)
-        
-        form = cgi.FieldStorage(
-            fp=environ['wsgi.input'],
-            environ=environ,
-            keep_blank_values=True
-        )
-        
-        form_data = {}
-        file_data = {}
-        
-        for key in form.keys():
-            item = form[key]
-            if item.filename:
-                # File upload
-                file_data[key] = item.file.read()
-            else:
-                # Regular field
-                if key not in form_data:
-                    form_data[key] = []
-                form_data[key].append(item.value)
-        
-        return (form_data, file_data)
+    # Use werkzeug for better multipart handling
+    stream, form, files = parse_form_data(environ)
+    
+    # Convert to dict format
+    form_data = {}
+    for key in form.keys():
+        form_data[key] = form.getlist(key)
+    
+    file_data = {}
+    for key in files.keys():
+        file_storage = files[key]
+        file_data[key] = file_storage.read()
+    
+    return (form_data, file_data)
 
 
 def application(environ, start_response):
