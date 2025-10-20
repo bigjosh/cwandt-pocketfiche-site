@@ -348,7 +348,7 @@
           // Convert map units to pixels at current zoom (at zoom 0, 1 map unit = 1 pixel)
           const pixelsPerMapUnit = Math.pow(2, zoom);
           barWidthPixels = diskDiameterMapUnits * pixelsPerMapUnit;
-          label = '1cwt';
+          label = '1CWT';
           break;
           
         case (zoom < CWANT_LOGO_ZOOM_LEVEL):
