@@ -249,12 +249,14 @@ def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Imag
     layer_root = zoom_dir.parent
     maxzoom_dir = layer_root / str(MAX_ZOOM)
     
-    # Load all contributing MAX_ZOOM tiles
-    maxzoom_tiles = []
+    # Create the combined image upfront (using RGBA mode)
+    combined_size = TILE_SIZE * tiles_per_side
+    combined = Image.new('RGBA', (combined_size, combined_size), (0, 0, 0, 0))  # Transparent
+    
+    # Load and paste tiles directly into combined image
     all_placeholders = True
     
     for ty in range(tiles_per_side):
-        row = []
         for tx in range(tiles_per_side):
             tile_x = maxzoom_start_x + tx
             tile_y = maxzoom_start_y + ty
@@ -263,50 +265,42 @@ def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Imag
             if not tile_path.exists():
                 raise Exception(f"MAX_ZOOM tile {tile_path} does not exist")
             
-            # Open and convert to LA (Luminance + Alpha)
+            # Open image
             tile_img = Image.open(tile_path)
             
             # Check if this is a placeholder
             if not is_placeholder(tile_img):
                 all_placeholders = False
             
-            # Convert to LA mode (Luminance + Alpha) for monochrome images
-            # This uses 2 bytes/pixel instead of 4 bytes/pixel (RGBA), saving 50% memory
+            # Convert to RGBA mode, properly handling transparency
+            # For 1-bit images with transparency, PIL doesn't automatically convert
+            # the transparency to alpha channel, so we need to handle it explicitly
             if tile_img.mode == '1' and 'transparency' in tile_img.info:
-                # For 1-bit with transparency, manually convert to LA
-                gray = tile_img.convert('L')
-                tile_la = Image.new('LA', tile_img.size)
-                pixels = tile_la.load()
-                gray_pixels = gray.load()
-                for py in range(tile_img.height):
-                    for px in range(tile_img.width):
-                        if gray_pixels[px, py] == 255:  # White pixel
-                            pixels[px, py] = (255, 0)  # White with transparent alpha
-                        else:  # Black pixel
-                            pixels[px, py] = (0, 255)  # Black with opaque alpha
+                # Convert to L (grayscale) to get pixel values
+                tile_l = tile_img.convert('L')
+                # Convert to RGB (all pixels become 0 or 255 in all channels)
+                tile_rgb = tile_l.convert('RGB')
+                # Create alpha channel: white (255) -> transparent (0), black (0) -> opaque (255)
+                # Use point() to invert: 255 - x
+                alpha = tile_l.point(lambda x: 255 - x)
+                # Convert to RGBA and apply alpha channel
+                tile_rgba = tile_rgb.copy()
+                tile_rgba.putalpha(alpha)
             else:
-                # For other modes, convert to LA
-                tile_la = tile_img.convert('LA')
+                # For other modes, convert directly
+                tile_rgba = tile_img.convert('RGBA')
             
-            row.append(tile_la)
-        maxzoom_tiles.append(row)
+            # Paste directly into combined image
+            x_pos = tx * TILE_SIZE
+            y_pos = ty * TILE_SIZE
+            combined.paste(tile_rgba, (x_pos, y_pos), tile_rgba)
     
     # Optimization: If all MAX_ZOOM tiles are placeholders, return placeholder
+    # dont fret about all the work above becuase pasting tiny placeholders is very cheap
     if all_placeholders:
         return placeholder_img
     
-    # Combine all MAX_ZOOM tiles into one large image (using LA mode to save memory)
-    combined_size = TILE_SIZE * tiles_per_side
-    combined = Image.new('LA', (combined_size, combined_size), (0, 0))  # Black with transparent alpha
-    
-    for ty in range(tiles_per_side):
-        for tx in range(tiles_per_side):
-            x_pos = tx * TILE_SIZE
-            y_pos = ty * TILE_SIZE
-            combined.paste(maxzoom_tiles[ty][tx], (x_pos, y_pos), maxzoom_tiles[ty][tx])
-    
     # Downsample directly to target size using LANCZOS
-    # (resize preserves LA mode, so no conversion needed)
     scaled = combined.resize((TILE_SIZE, TILE_SIZE), Image.Resampling.LANCZOS)
     
     return scaled
@@ -502,7 +496,7 @@ def rebuild_tile_at_zoom(zoom: int, x: int, y: int, layer_root: Path):
     tile_dir = zoom_dir / str(x)
     tile_dir.mkdir(parents=True, exist_ok=True)
     tile_path = tile_dir / f"{y}.png"
-    # Save with explicit RGBA mode to preserve transparency
+    # RGBA images already have transparency in alpha channel, PIL preserves it automatically
     # Don't optimize here - we'll do compression in a separate pass
     tile.save(tile_path, 'PNG')
 
