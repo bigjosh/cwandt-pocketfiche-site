@@ -140,6 +140,7 @@ textarea {
   border: 2px solid #00ffff;
   border-radius: 4px;
   image-rendering: pixelated;  /* Show crisp pixels */
+  background-color: #b78727;  /* University of California Gold - shows through transparent black pixels. Should match goldColor in app.py */
 }
 
 /* Buttons */

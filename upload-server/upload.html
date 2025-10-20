@@ -505,6 +505,7 @@
           
           // Convert to black and white (1-bit)
           // Use simple threshold: brightness >= 50% = white, else black
+          // Black pixels become transparent, white pixels stay opaque
           for (let i = 0; i < pixels.length; i += 4) {
             const r = pixels[i];
             const g = pixels[i + 1];
@@ -518,7 +519,7 @@
             pixels[i] = value;      // R
             pixels[i + 1] = value;  // G
             pixels[i + 2] = value;  // B
-            // Alpha stays the same
+            pixels[i + 3] = value;  // Alpha: 0 for black (transparent), 255 for white (opaque)
           }
           
           // Put processed data back

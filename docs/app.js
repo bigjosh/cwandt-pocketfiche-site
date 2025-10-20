@@ -508,7 +508,7 @@
   const radiusMapUnits = innerRadiusMicrometers / UM_PER_MAPUNIT;
   
   // Disk color constants for different zoom levels
-  const goldColor   = '#b78727';   // Default gold color at parcel zoom - "University of California Gold"
+  const goldColor   = '#b78727';   // Default gold color at parcel zoom - "University of California Gold". NOTE: Also update the class preview-image in upload-server-style.css
   const cwandtColor = '#ff9412';   // CW&T orange at intermediate zoom
   const sunColor    = '#FFDF22';   // "Sun yellow" at solar system zoom
   

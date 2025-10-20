@@ -280,9 +280,9 @@ def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Imag
                 tile_l = tile_img.convert('L')
                 # Convert to RGB (all pixels become 0 or 255 in all channels)
                 tile_rgb = tile_l.convert('RGB')
-                # Create alpha channel: white (255) -> transparent (0), black (0) -> opaque (255)
-                # Use point() to invert: 255 - x
-                alpha = tile_l.point(lambda x: 255 - x)
+                # Create alpha channel: black (0) -> transparent (0), white (255) -> opaque (255)
+                # Direct mapping: alpha = pixel value
+                alpha = tile_l
                 # Convert to RGBA and apply alpha channel
                 tile_rgba = tile_rgb.copy()
                 tile_rgba.putalpha(alpha)
@@ -323,7 +323,7 @@ def is_file_newer_than(source_path: Path, destination_path: Path) -> bool:
 BG_COLOR = ( 0 , 0 , 255)
 
 def convert_parcel_to_tile(input_path, output_path):
-    """Convert parcel image to 1-bit black/white with white as transparent.
+    """Convert parcel image to 1-bit black/white with black as transparent.
     
     Note: Does not optimize here - compression happens in separate pass.
     """
@@ -336,9 +336,10 @@ def convert_parcel_to_tile(input_path, output_path):
     # Convert to 1-bit using 50% threshold: >127 becomes white (1), <=127 becomes black (0)
     img_1bit = img_gray.convert('1')
     
-    # Save as PNG with white (color value 1) set to transparent
+    # Save as PNG with black (color value 0) set to transparent
     # Don't optimize here - we'll do compression in a separate pass
-    img_1bit.save(output_path, 'PNG', transparency=1)
+    
+    img_1bit.save(output_path, 'PNG', transparency=0)
     
 
 def _compress_with_oxipng(input_path: Path, output_path: Path) -> bool:
