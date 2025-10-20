@@ -235,6 +235,68 @@
     let sortField = 'code';
     let sortAscending = true;
     
+    // Delete image (allows re-upload to same location)
+    window.deleteImage = async function(code) {
+      if (!confirm('Delete the uploaded image? This will allow the user to re-upload to the same location.')) {
+        return;
+      }
+      
+      try {
+        const formData = new FormData();
+        formData.append('command', 'delete-image');
+        formData.append('admin-id', adminId);
+        formData.append('code', code);
+        
+        const response = await fetch('cgi-bin/app.py', {
+          method: 'POST',
+          body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+          alert('Image deleted successfully!');
+          // Refresh the codes table
+          showCodesBtn.click();
+        } else {
+          alert('Error: ' + (data.message || 'Failed to delete image'));
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    };
+    
+    // Delete location and image (makes location available for others)
+    window.deleteLocation = async function(code) {
+      if (!confirm('Delete the location assignment? This will delete both the location and image files, making the location available for others to claim.')) {
+        return;
+      }
+      
+      try {
+        const formData = new FormData();
+        formData.append('command', 'delete-location');
+        formData.append('admin-id', adminId);
+        formData.append('code', code);
+        
+        const response = await fetch('cgi-bin/app.py', {
+          method: 'POST',
+          body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+          alert('Location and image deleted successfully!');
+          // Refresh the codes table
+          showCodesBtn.click();
+        } else {
+          alert('Error: ' + (data.message || 'Failed to delete location'));
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    };
+    
     // Show notes popup
     window.showNotesPopup = function(notes) {
       // Create modal overlay
@@ -311,13 +373,21 @@
           if (code['parcel-location']) {
             const location = code['parcel-location'];
             const viewerUrl = `/?parcel=${encodeURIComponent(location)}`;
-            html += `<td><a href="${viewerUrl}" target="_blank" rel="noopener">${location}</a></td>`;
+            html += `<td><a href="${viewerUrl}" target="_blank" rel="noopener">${location}</a> `;
+            html += `<a href="#" onclick="deleteLocation('${code.code}'); return false;" style="color: red; text-decoration: none;" title="Delete location and image (makes location available for others)">🗑️</a>`;
+            html += `</td>`;
           } else {
             html += `<td></td>`;
           }
           
-          // Status
-          html += `<td>${code.status}</td>`;
+          // Status - add delete icon if uploaded
+          if (code.status === 'uploaded') {
+            html += `<td>${code.status} `;
+            html += `<a href="#" onclick="deleteImage('${code.code}'); return false;" style="color: red; text-decoration: none;" title="Delete image (allows re-upload to same location)">🗑️</a>`;
+            html += `</td>`;
+          } else {
+            html += `<td>${code.status}</td>`;
+          }
           
           // Notes last (all the way to the right)
           const notes = code.notes || '';

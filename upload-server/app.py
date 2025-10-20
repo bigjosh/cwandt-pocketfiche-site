@@ -4,9 +4,10 @@ Pocket Fische Upload Server - WSGI Application
 
 API documented in README.md
 
-Handles two types of commands:
-1. Admin commands: generate-code, get-codes (requires admin-id parameter)
+Handles three types of commands:
+1. Admin commands: generate-code, get-codes, delete-image, delete-location (requires admin-id parameter)
 2. Backer commands: get-parcel, upload (requires code parameter)
+3. Public commands: get-parcels (no auth required)
 
 All data is stored in files in PF_DATA_DIR environment variable location.
 
@@ -472,7 +473,11 @@ def handle_get_codes(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]
         if parcel_location:
             parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
             if parcel_file.exists():
-                status = 'uploaded'
+                # Check if it's a placeholder (1x1 image)
+                if is_placeholder_image(parcel_file):
+                    status = 'placeholdered'
+                else:
+                    status = 'uploaded'
             else:
                 status = 'claimed'
         
@@ -511,8 +516,8 @@ def handle_get_parcel(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes
     
     # Check if actual parcel image file exists
     parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
-    if parcel_file.exists():
-        # Image has been uploaded
+    if parcel_file.exists() and not is_placeholder_image(parcel_file):
+        # Real image has been uploaded
         return send_json({'status': 'uploaded', 'parcel-location': parcel_location})
     else:
         # Location claimed but image not uploaded yet
@@ -543,6 +548,175 @@ def handle_get_parcels(form_data: dict, data_dir: Path) -> Tuple[str, list, byte
     
     # Return JSON array of claimed parcel locations (sorted for consistency)
     return send_json({'status': 'success', 'parcels': sorted(claimed_locations)})
+
+
+
+def is_placeholder_image(parcel_file: Path) -> bool:
+    """Check if a parcel image file is a placeholder (1x1 pixel).
+    
+    Args:
+        parcel_file: Path to parcel image file
+        
+    Returns:
+        True if file is a 1x1 placeholder, False otherwise
+    """
+    if not parcel_file.exists():
+        return False
+    
+    try:
+        img = Image.open(parcel_file)
+        return img.size == (1, 1)
+    except Exception:
+        # If we can't open it, assume it's not a placeholder
+        return False
+
+
+def replace_with_placeholder(parcel_file: Path) -> None:
+    """Atomically replace a parcel file with a 1x1 transparent placeholder PNG.
+    
+    Creates a placeholder and atomically swaps it with the existing file.
+    This ensures the builder sees the timestamp change.
+    
+    Args:
+        parcel_file: Path to parcel file to replace
+        
+    Raises:
+        Exception: If replacement fails
+    """
+    # Create 1x1 transparent placeholder PNG
+    placeholder = Image.new('RGBA', (1, 1), (255, 255, 255, 0))
+    output = io.BytesIO()
+    placeholder.save(output, format='PNG', optimize=True)
+    placeholder_bytes = output.getvalue()
+    
+    # Atomically replace the parcel file with placeholder
+    fd, temp_path = tempfile.mkstemp(dir=parcel_file.parent, suffix='.png')
+    temp_path = Path(temp_path)
+    
+    try:
+        os.write(fd, placeholder_bytes)
+        os.close(fd)
+        # Atomically replace
+        temp_path.replace(parcel_file)
+    except Exception as e:
+        try:
+            os.close(fd)
+        except:
+            pass
+        if temp_path.exists():
+            temp_path.unlink()
+        raise
+
+
+def delete_parcel_image(parcel_location: str, data_dir: Path) -> Tuple[bool, Optional[str]]:
+    """Delete a parcel image file by replacing it with a 1x1 transparent placeholder.
+
+    I KNOW this is ugly because we will have these empty parcels hanging around in the parcels directory,
+    but we need to do something becuase therer is no way for the builder to notice the difference between
+    "there is no parcel here" and "there was a parcel here but now it is deleted" without storing state somewhere.
+    
+    Uses atomic replacement to catch the extreemly unlikely race where one user deletes a parcel and in the *instant* between
+    the delete and the new placeholder getting saved another user uploads to the same location. Sorry, I worry about these things. :)
+
+    Args:
+        parcel_location: Parcel location string (e.g., 'A1', 'B12', 'AL38')
+        data_dir: Path to data directory
+        
+    Returns:
+        Tuple of (success: bool, error_message: str or None)
+    """
+    parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
+    if parcel_file.exists():
+        try:
+            replace_with_placeholder(parcel_file)
+            return (True, None)
+        except Exception as e:
+            return (False, f'Failed to delete image: {e}')
+    else:
+        return (False, 'No image file found')
+
+
+def handle_delete_image(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]:
+    """Handle delete-image command (admin only).
+    
+    Deletes the parcel image file, allowing the user to re-upload to the same location.
+    Does not delete the location file, so the location remains claimed by the code.
+    """
+    # Check admin authorization
+    admin_id = form_data.get('admin-id', [''])[0]
+    if not check_admin_auth(admin_id, data_dir):
+        return send_json({'status': 'error', 'message': 'Not authorized', 'code': 401})
+    
+    # Get code parameter
+    code = form_data.get('code', [''])[0].strip()
+    if not code:
+        return send_json({'status': 'error', 'message': 'code required'})
+    
+    # Check if code exists
+    access_file = data_dir / 'access' / f'{code}.txt'
+    if not access_file.exists():
+        return send_json({'status': 'error', 'message': 'code not found'})
+    
+    # Get the location file
+    location_file = data_dir / 'locations' / f'{code}.txt'
+    if not location_file.exists():
+        return send_json({'status': 'error', 'message': 'No location assigned to this code'})
+    
+    # Get the parcel location
+    parcel_location = location_file.read_text(encoding='utf-8').strip()
+    
+    # Delete the parcel image file
+    success, error_message = delete_parcel_image(parcel_location, data_dir)
+    if success:
+        return send_json({'status': 'success', 'message': 'Image deleted'})
+    else:
+        return send_json({'status': 'error', 'message': error_message})
+
+
+def handle_delete_location(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]:
+    """Handle delete-location command (admin only).
+    
+    Deletes both the location file and the parcel image file.
+    This makes the location available for others to claim and allows the user to pick a new location.
+    """
+    # Check admin authorization
+    admin_id = form_data.get('admin-id', [''])[0]
+    if not check_admin_auth(admin_id, data_dir):
+        return send_json({'status': 'error', 'message': 'Not authorized', 'code': 401})
+    
+    # Get code parameter
+    code = form_data.get('code', [''])[0].strip()
+    if not code:
+        return send_json({'status': 'error', 'message': 'code required'})
+    
+    # Check if code exists
+    access_file = data_dir / 'access' / f'{code}.txt'
+    if not access_file.exists():
+        return send_json({'status': 'error', 'message': 'code not found'})
+    
+    # Get the location file
+    location_file = data_dir / 'locations' / f'{code}.txt'
+    if not location_file.exists():
+        return send_json({'status': 'error', 'message': 'No location assigned to this code'})
+    
+    # Get the parcel location
+    parcel_location = location_file.read_text(encoding='utf-8').strip()
+    
+    # Delete both the location file and the parcel image file
+    # Note that we delete the location first becuase then the image will be hanging so no
+    # race condition can occur. But there is one failure mode if everything crashes exactly when 
+    # the location file is deleted but the image file is not. In that case, the image will be 
+    # hanging. I can live with that. :)
+    try:
+        # Delete location file first
+        location_file.unlink()
+        
+        # Delete parcel image if it exists (ignore errors since location is already deleted)
+        delete_parcel_image(parcel_location, data_dir)
+        
+        return send_json({'status': 'success', 'message': 'Location and image deleted'})
+    except Exception as e:
+        return send_json({'status': 'error', 'message': f'Failed to delete: {e}'})
 
 
 def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str, list, bytes]:
@@ -598,16 +772,49 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
     
     # Try to add parcel image file
     parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
-    success, file_existed = atomic_add_binary_file(parcel_file, converted_image_data)
     
-    if not success:
-        # Location already taken - rollback location file only if we created it
-        if not location_was_preassigned:
+    # Check if file exists and is a placeholder (allows re-upload after deletion)
+    if parcel_file.exists() and is_placeholder_image(parcel_file):
+        # It's a placeholder - atomically replace it with the new image
+        try:
+            # Create temp file in same directory
+            fd, temp_path = tempfile.mkstemp(dir=parcel_file.parent, suffix='.png')
+            temp_path = Path(temp_path)
+            
             try:
-                location_file.unlink()
+                os.write(fd, converted_image_data)
+                os.close(fd)
+                # Atomically replace placeholder with new image
+                temp_path.replace(parcel_file)
             except Exception as e:
-                print(f"WARNING: Failed to rollback location file: {e}", file=sys.stderr)
-        return send_json({'status': 'taken', 'location': parcel_location})
+                try:
+                    os.close(fd)
+                except:
+                    pass
+                if temp_path.exists():
+                    temp_path.unlink()
+                raise
+                
+        except Exception as e:
+            # Failed to replace - rollback location file only if we created it
+            if not location_was_preassigned:
+                try:
+                    location_file.unlink()
+                except Exception as rollback_error:
+                    print(f"WARNING: Failed to rollback location file: {rollback_error}", file=sys.stderr)
+            return send_json({'status': 'error', 'message': f'Failed to save image: {e}'})
+    else:
+        # Try to add new parcel image file (no placeholder exists)
+        success, file_existed = atomic_add_binary_file(parcel_file, converted_image_data)
+        
+        if not success:
+            # Location already taken - rollback location file only if we created it
+            if not location_was_preassigned:
+                try:
+                    location_file.unlink()
+                except Exception as e:
+                    print(f"WARNING: Failed to rollback location file: {e}", file=sys.stderr)
+            return send_json({'status': 'taken', 'location': parcel_location})
     
     # Success!
     return send_json({'status': 'success', 'location': parcel_location})
@@ -742,6 +949,10 @@ def application(environ, start_response):
             status, headers, body = handle_get_parcel(form_data, data_dir)
         elif command == 'get-parcels':
             status, headers, body = handle_get_parcels(form_data, data_dir)
+        elif command == 'delete-image':
+            status, headers, body = handle_delete_image(form_data, data_dir)
+        elif command == 'delete-location':
+            status, headers, body = handle_delete_location(form_data, data_dir)
         elif command == 'upload':
             status, headers, body = handle_upload(form_data, file_data, data_dir)
         else:
