@@ -65,6 +65,35 @@ def get_data_dir() -> Path:
     return data_dir
 
 
+def initialize_locks_dir(data_dir: Path) -> None:
+    """Initialize locks directory by removing any stale locks from previous runs.
+    
+    This is called on startup to clean up any orphaned lock files that may have
+    been left behind if a process crashed during claim.
+    
+    Args:
+        data_dir: Path to data directory
+    """
+    locks_dir = data_dir / 'locks'
+    
+    # Remove entire locks directory if it exists
+    if locks_dir.exists():
+        import shutil
+        shutil.rmtree(locks_dir)
+    
+    # Recreate empty locks directory
+    locks_dir.mkdir(parents=True, exist_ok=True)
+
+
+# Initialize locks directory on module load to clean up any orphaned locks
+try:
+    _data_dir = get_data_dir()
+    initialize_locks_dir(_data_dir)
+    print(f"INFO: Cleaned locks directory at {_data_dir / 'locks'}", file=sys.stderr)
+except Exception as e:
+    print(f"WARNING: Failed to initialize locks directory: {e}", file=sys.stderr)
+
+
 def send_error(message: str, code: int = 400) -> Tuple[str, list, bytes]:
     """Send an error response.
     
@@ -551,6 +580,35 @@ def handle_get_parcels(form_data: dict, data_dir: Path) -> Tuple[str, list, byte
 
 
 
+def is_parcel_location_claimed(parcel_location: str, data_dir: Path) -> Optional[str]:
+    """Check if a parcel location is already claimed by scanning all location files.
+    
+    Args:
+        parcel_location: Parcel location to check (e.g., 'A1', 'B12')
+        data_dir: Path to data directory
+        
+    Returns:
+        Access code that claimed this location, or None if not claimed
+    """
+    locations_dir = data_dir / 'locations'
+    if not locations_dir.exists():
+        return None
+    
+    # Scan all location files
+    for location_file in locations_dir.glob('*.txt'):
+        try:
+            claimed_location = location_file.read_text(encoding='utf-8').strip()
+            if claimed_location == parcel_location:
+                # Extract code from filename (e.g., 'ABC12345.txt' -> 'ABC12345')
+                code = location_file.stem
+                return code
+        except Exception:
+            # Skip files that can't be read
+            continue
+    
+    return None
+
+
 def is_placeholder_image(parcel_file: Path) -> bool:
     """Check if a parcel image file is a placeholder (1x1 pixel).
     
@@ -762,13 +820,42 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
         if existing_location != parcel_location:
             return send_json({'status': 'error', 'message': 'Wrong location'})
     else:
-        # No pre-assigned location - try to add location file
-        success, existing_content = atomic_add_file(location_file, parcel_location)
+        # No pre-assigned location - use lock-based claim to prevent race conditions
+        lock_file = data_dir / 'locks' / f'{parcel_location}.txt'
         
-        if not success:
-            # Code already used
-            existing_location = existing_content.strip() if existing_content else parcel_location
-            return send_json({'status': 'used', 'location': existing_location})
+        # Step 1: Try to atomically create lock file
+        lock_success, _ = atomic_add_file(lock_file, code)
+        if not lock_success:
+            # Someone else is claiming this location right now
+            return send_json({'status': 'error', 'message': 'Location not available (being claimed by another user)'})
+        
+        try:
+            # Step 2: Check if parcel location is already claimed by another code
+            claiming_code = is_parcel_location_claimed(parcel_location, data_dir)
+            if claiming_code and claiming_code != code:
+                # Already claimed by a different code
+                lock_file.unlink()  # Clean up lock
+                return send_json({'status': 'error', 'message': f'Location already claimed by another user'})
+            
+            # Step 3: Try to create location file atomically
+            success, existing_content = atomic_add_file(location_file, parcel_location)
+            
+            if not success:
+                # Code already used (shouldn't happen, but handle it)
+                lock_file.unlink()  # Clean up lock
+                existing_location = existing_content.strip() if existing_content else parcel_location
+                return send_json({'status': 'used', 'location': existing_location})
+            
+            # Step 4: Success! Delete lock file
+            lock_file.unlink()
+            
+        except Exception as e:
+            # Clean up lock on any error
+            try:
+                lock_file.unlink()
+            except:
+                pass
+            raise
     
     # Try to add parcel image file
     parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
