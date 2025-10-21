@@ -450,17 +450,47 @@ def add_parcel_file(parcel_location: str, content: bytes, data_dir: Path) -> boo
     if parcel_file.exists():
         # File exists - check if it's a placeholder
         if is_placeholder_image(parcel_file):
-            # Replace placeholder with real image
-            parcel_file.write_bytes(content)
-            return True
+            # Replace placeholder with real image using temp-then-replace
+            # This ensures a fresh timestamp
+            parcel_file.parent.mkdir(parents=True, exist_ok=True)
+            fd, temp_path = tempfile.mkstemp(dir=parcel_file.parent, suffix='.png')
+            temp_path = Path(temp_path)
+            
+            try:
+                os.write(fd, content)
+                os.close(fd)
+                temp_path.replace(parcel_file)
+                return True
+            except Exception as e:
+                try:
+                    os.close(fd)
+                except:
+                    pass
+                if temp_path.exists():
+                    temp_path.unlink()
+                raise
         else:
             # Real image already exists
             return False
     else:
-        # No file exists - write it
+        # No file exists - use temp-then-replace for consistent timestamps
         parcel_file.parent.mkdir(parents=True, exist_ok=True)
-        parcel_file.write_bytes(content)
-        return True
+        fd, temp_path = tempfile.mkstemp(dir=parcel_file.parent, suffix='.png')
+        temp_path = Path(temp_path)
+        
+        try:
+            os.write(fd, content)
+            os.close(fd)
+            temp_path.replace(parcel_file)
+            return True
+        except Exception as e:
+            try:
+                os.close(fd)
+            except:
+                pass
+            if temp_path.exists():
+                temp_path.unlink()
+            raise
 
 
 def claim_parcel(parcel_location: str, code: str, data_dir: Path) -> Tuple[str, Optional[str]]:
