@@ -834,7 +834,13 @@
   
   // Add default layers - gold disk first (behind), then parcels (on top)
 
-  circleLayer.addTo(map);
+  // Create a renderer with more padding
+  // this makes it so when we pan and zoom out there is already some more disk waiting for us.
+  // otherwise there is just black while we wait for it to redraw.
+const myRenderer = L.svg({ padding: 1.0 });
+
+
+  circleLayer.addTo(map,renderer: myRenderer);
   //cwandtImageOverlayMarker.addTo(map);
   
   // Get the actual logo image element that Leaflet inserted into the DOM
