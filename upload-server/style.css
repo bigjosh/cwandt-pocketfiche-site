@@ -137,7 +137,7 @@ textarea {
 #preview-image {
   max-width: 100%;
   height: auto;
-  border: 2px solid #00ffff;
+  border: 5px solid #b78727;
   border-radius: 4px;
   image-rendering: pixelated;  /* Show crisp pixels */
   background-color: #b78727;  /* University of California Gold - shows through transparent black pixels. Should match goldColor in app.py */
