@@ -49,8 +49,11 @@
       <div id="preview-container">
         <h2>Image Preview</h2>
         <canvas id="preview-image"></canvas>
-        <p style="text-align: center; margin-top: 15px; font-size: 12px; color: #888;">
-          Don't like the preview? Try seletcing a different image!
+        <div style="text-align: center; margin-top: 15px;">
+          <button type="button" id="invert-btn" style="font-size: 14px; padding: 8px 16px;">Invert Colors</button>
+        </div>
+        <p style="text-align: center; margin-top: 10px; font-size: 12px; color: #888;">
+          Don't like the preview? Try selecting a different image!
         </p>
       </div>
       
@@ -155,6 +158,7 @@
     const parcelMapCanvas = document.getElementById('parcel-map');
     const claimedMapSection = document.getElementById('claimed-map-section');
     const claimedParcelMapCanvas = document.getElementById('claimed-parcel-map');
+    const invertBtn = document.getElementById('invert-btn');
     
     let processedImageBlob = null;  // Store the processed image
     let availableParcels = new Set();  // Store available parcel locations
@@ -568,6 +572,37 @@
       };
       img.src = imageDataUrl;
     }
+    
+    // Invert colors button
+    invertBtn.addEventListener('click', () => {
+      if (!processedImageBlob) {
+        return;  // No image to invert
+      }
+      
+      // Get current preview canvas data
+      const ctx = previewCanvas.getContext('2d');
+      const imageData = ctx.getImageData(0, 0, 500, 500);
+      const pixels = imageData.data;
+      
+      // Invert all pixels (swap 0 and 255)
+      for (let i = 0; i < pixels.length; i += 4) {
+        pixels[i] = 255 - pixels[i];       // R
+        pixels[i + 1] = 255 - pixels[i + 1]; // G
+        pixels[i + 2] = 255 - pixels[i + 2]; // B
+        pixels[i + 3] = 255 - pixels[i + 3]; // Alpha
+      }
+      
+      // Update preview
+      ctx.putImageData(imageData, 0, 0);
+      
+      // Regenerate blob from inverted image
+      previewCanvas.toBlob((blob) => {
+        if (blob) {
+          processedImageBlob = blob;
+          console.log('Image inverted, new blob size:', blob.size, 'bytes');
+        }
+      }, 'image/png');
+    });
     
     // Upload button
     uploadBtn.addEventListener('click', async () => {
