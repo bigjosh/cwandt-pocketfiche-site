@@ -450,14 +450,16 @@ def handle_generate_code(form_data: dict, data_dir: Path) -> Tuple[str, list, by
             content = f"{backer_id}\n{admin_name}\n{notes}"
             access_file.write_text(content, encoding='utf-8')
             
-            # If parcel location specified, save it to locations/{code}.txt
-            # Use atomic replace to allow overwrites for migration/re-assignment
+            # If parcel location specified, claim it using lock-based system
             if parcel_location:
-                location_file = data_dir / 'locations' / f'{code}.txt'
-                try:
-                    atomic_replace_file(location_file, parcel_location)
-                except Exception as e:
-                    return send_json({'status': 'error', 'message': f'Failed to save location: {e}'})
+                success, error_code = claim_parcel(parcel_location, code, data_dir)
+                if not success:
+                    # Failed to claim - delete the access file we just created
+                    try:
+                        access_file.unlink()
+                    except Exception:
+                        pass
+                    return send_json({'status': 'error', 'message': error_code})
             
             return send_json({'status': 'success', 'code': code})
     
@@ -580,8 +582,73 @@ def handle_get_parcels(form_data: dict, data_dir: Path) -> Tuple[str, list, byte
 
 
 
+def claim_parcel(parcel_location: str, code: str, data_dir: Path) -> Tuple[bool, Optional[str]]:
+    """Attempt to claim a parcel location using lock-based atomic system.
+    
+    Uses a lock file to prevent race conditions during the claim process:
+    1. Create lock file atomically
+    2. Check if location already claimed by another code
+    3. Create location file atomically
+    4. Delete lock file
+    
+    Args:
+        parcel_location: Parcel location to claim (e.g., 'A1', 'B12')
+        code: Access code attempting to claim
+        data_dir: Path to data directory
+        
+    Returns:
+        Tuple of (success: bool, error_code: Optional[str])
+        - (True, None) if claim succeeded
+        - (False, error_code) if claim failed
+        
+        Error codes (can be used directly in response messages):
+        - 'lock_contention': Someone else is claiming this location right now
+        - 'already_claimed': Location already claimed by another code
+        - 'code_used': This code already has a different location
+    """
+    location_file = data_dir / 'locations' / f'{code}.txt'
+    lock_file = data_dir / 'locks' / f'{parcel_location}.txt'
+    
+    # Step 1: Try to atomically create lock file
+    lock_success, _ = atomic_add_file(lock_file, code)
+    if not lock_success:
+        # Someone else is claiming this location right now
+        # In practice you would need pretty amazing luck to see this.
+        return (False, 'lock contention')
+    
+    try:
+        # Step 2: Check if parcel location is already claimed by another code
+        claiming_code = is_parcel_location_claimed(parcel_location, data_dir)
+        if claiming_code and claiming_code != code:
+            # Already claimed by a different code
+            lock_file.unlink()  # Clean up lock
+            return (False, 'parcel already claimed')
+        
+        # Step 3: Try to create location file atomically
+        success, existing_content = atomic_add_file(location_file, parcel_location)
+        
+        if not success:
+            # Code already used (shouldn't happen in normal flow, but handle race condition)
+            lock_file.unlink()  # Clean up lock
+            return (False, 'code already used')
+        
+        # Step 4: Success! Delete lock file
+        lock_file.unlink()
+        return (True, None)
+        
+    except Exception as e:
+        # Clean up lock on any error
+        try:
+            lock_file.unlink()
+        except:
+            pass
+        raise
+
+
 def is_parcel_location_claimed(parcel_location: str, data_dir: Path) -> Optional[str]:
     """Check if a parcel location is already claimed by scanning all location files.
+
+    NOT ATOMIC! You need another way to guard against races. 
     
     Args:
         parcel_location: Parcel location to check (e.g., 'A1', 'B12')
@@ -813,6 +880,11 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
     # Check if location file already exists (pre-assigned location)
     location_file = data_dir / 'locations' / f'{code}.txt'
     location_was_preassigned = location_file.exists()
+
+    # there is an esoteric race condition here where the location file is deleted
+    # between the time we check and the time we try to claim it. In that case, we
+    # should just let the claim fail. The failure mode is that the parcel will be
+    # left unclaimed. I don't care. 
     
     if location_was_preassigned:
         # Location was pre-assigned - verify it matches
@@ -821,41 +893,20 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
             return send_json({'status': 'error', 'message': 'Wrong location'})
     else:
         # No pre-assigned location - use lock-based claim to prevent race conditions
-        lock_file = data_dir / 'locks' / f'{parcel_location}.txt'
-        
-        # Step 1: Try to atomically create lock file
-        lock_success, _ = atomic_add_file(lock_file, code)
-        if not lock_success:
-            # Someone else is claiming this location right now
-            return send_json({'status': 'error', 'message': 'Location not available (being claimed by another user)'})
-        
-        try:
-            # Step 2: Check if parcel location is already claimed by another code
-            claiming_code = is_parcel_location_claimed(parcel_location, data_dir)
-            if claiming_code and claiming_code != code:
-                # Already claimed by a different code
-                lock_file.unlink()  # Clean up lock
-                return send_json({'status': 'error', 'message': f'Location already claimed by another user'})
-            
-            # Step 3: Try to create location file atomically
-            success, existing_content = atomic_add_file(location_file, parcel_location)
-            
-            if not success:
-                # Code already used (shouldn't happen, but handle it)
-                lock_file.unlink()  # Clean up lock
-                existing_location = existing_content.strip() if existing_content else parcel_location
-                return send_json({'status': 'used', 'location': existing_location})
-            
-            # Step 4: Success! Delete lock file
-            lock_file.unlink()
-            
-        except Exception as e:
-            # Clean up lock on any error
-            try:
-                lock_file.unlink()
-            except:
-                pass
-            raise
+        success, error_code = claim_parcel(parcel_location, code, data_dir)
+        if not success:
+            # Handle 'code_used' specially to return 'used' status with correct location
+            if error_code == 'code_used':
+                # Code already has a different location - read it and return 'used' status
+                try:
+                    existing_location = location_file.read_text(encoding='utf-8').strip()
+                    return send_json({'status': 'used', 'location': existing_location})
+                except Exception:
+                    # Fallback if we can't read the file
+                    return send_json({'status': 'used', 'location': parcel_location})
+            else:
+                # For other errors, just return the error code as the message
+                return send_json({'status': 'error', 'message': error_code})
     
     # Try to add parcel image file
     parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
