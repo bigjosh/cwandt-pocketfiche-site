@@ -31,6 +31,7 @@ from typing import Optional, Tuple
 from urllib.parse import parse_qs
 import mimetypes
 
+from filelock import FileLock, Timeout
 from PIL import Image
 # Allow loading of truncated images (sometimes happens during upload)
 # ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -65,33 +66,9 @@ def get_data_dir() -> Path:
     return data_dir
 
 
-def initialize_locks_dir(data_dir: Path) -> None:
-    """Initialize locks directory by removing any stale locks from previous runs.
-    
-    This is called on startup to clean up any orphaned lock files that may have
-    been left behind if a process crashed during claim.
-    
-    Args:
-        data_dir: Path to data directory
-    """
-    locks_dir = data_dir / 'locks'
-    
-    # Remove entire locks directory if it exists
-    if locks_dir.exists():
-        import shutil
-        shutil.rmtree(locks_dir)
-    
-    # Recreate empty locks directory
-    locks_dir.mkdir(parents=True, exist_ok=True)
-
-
-# Initialize locks directory on module load to clean up any orphaned locks
-try:
-    _data_dir = get_data_dir()
-    initialize_locks_dir(_data_dir)
-    print(f"INFO: Cleaned locks directory at {_data_dir / 'locks'}", file=sys.stderr)
-except Exception as e:
-    print(f"WARNING: Failed to initialize locks directory: {e}", file=sys.stderr)
+# Global lock for all data directory operations
+# This prevents all race conditions by serializing access
+DATA_LOCK = FileLock(get_data_dir() / ".data.lock", timeout=30)
 
 
 def send_error(message: str, code: int = 400) -> Tuple[str, list, bytes]:
@@ -129,164 +106,6 @@ def send_json(data: dict) -> Tuple[str, list, bytes]:
         ('Content-Length', str(len(body)))
     ]
     return ('200 OK', headers, body)
-
-
-def atomic_add_file(file_path: Path, content: str) -> Tuple[bool, Optional[str]]:
-    """Atomically add a file. Returns (success, existing_content).
-    
-    Uses temp-then-link pattern for atomicity:
-    1. Write content to temp file
-    2. Use os.link() to atomically create target (fails if exists)
-    3. Delete temp file
-    
-    Args:
-        file_path: Target file path
-        content: Content to write
-        
-    Returns:
-        Tuple of (success: bool, existing_content: str or None)
-    """
-    # Ensure parent directory exists
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Create temp file in same directory
-    fd, temp_path = tempfile.mkstemp(dir=file_path.parent, text=True)
-    temp_path = Path(temp_path)
-    
-    try:
-        # Write content to temp file
-        os.write(fd, content.encode('utf-8'))
-        os.close(fd)
-        
-        # Try to link temp to target atomically - fails if target exists
-        try:
-            os.link(temp_path, file_path)
-            temp_path.unlink()  # Clean up temp file
-            return (True, None)
-        except FileExistsError:
-            # File already exists - read it and return
-            temp_path.unlink()  # Clean up temp file
-            try:
-                existing_content = file_path.read_text(encoding='utf-8')
-                return (False, existing_content)
-            except Exception:
-                # File was deleted after link failed
-                return (False, None)
-                
-    except Exception as e:
-        # Clean up temp file on any error
-        try:
-            os.close(fd)
-        except:
-            pass
-        if temp_path.exists():
-            temp_path.unlink()
-        raise
-
-
-def atomic_replace_file(file_path: Path, content: str) -> None:
-    """Atomically replace a file's contents (or create if doesn't exist).
-    
-    Uses write-to-temp-then-rename pattern to ensure atomicity.
-    The file is never missing during the operation.
-    
-    Args:
-        file_path: Target file path
-        content: Content to write
-    """
-    atomic_replace_binary_file(file_path, content.encode('utf-8'))
-
-
-def atomic_replace_binary_file(file_path: Path, content: bytes) -> None:
-    """Atomically replace a binary file's contents (or create if doesn't exist).
-    
-    Uses write-to-temp-then-rename pattern to ensure atomicity.
-    The file is never missing during the operation.
-    
-    Args:
-        file_path: Target file path
-        content: Binary content to write
-    """
-    # Ensure parent directory exists
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Create temp file in same directory (ensures same filesystem for atomic rename)
-    fd, temp_path = tempfile.mkstemp(dir=file_path.parent)
-    temp_path = Path(temp_path)
-    
-    try:
-        # Write binary content to temp file via file descriptor
-        os.write(fd, content)
-        os.close(fd)
-        
-        # Atomically replace target file with temp file
-        # os.replace() is guaranteed to be atomic on both Unix and Windows
-        # and will overwrite the target if it exists
-        temp_path.replace(file_path)
-        
-    except Exception as e:
-        # Clean up temp file if it exists
-        try:
-            os.close(fd)
-        except:
-            pass
-        if temp_path.exists():
-            temp_path.unlink()
-        raise
-
-
-
-def atomic_add_binary_file(file_path: Path, content: bytes) -> Tuple[bool, bool]:
-    """Atomically add a binary file. Fails if target already exists. Returns (success, file_existed).
-    
-    Uses temp-then-link pattern for atomicity:
-    1. Write content to temp file
-    2. Use os.link() to atomically create target (fails if exists)
-    3. Delete temp file
-    
-    This ensures readers never see partial data.
-    
-    Args:
-        file_path: Target file path
-        content: Binary content to write
-        
-    Returns:
-        Tuple of (success: bool, file_existed: bool)
-        - (True, False) if file was created successfully
-        - (False, True) if file already existed
-    """
-    # Ensure parent directory exists
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Create temp file in same directory
-    fd, temp_path = tempfile.mkstemp(dir=file_path.parent)
-    temp_path = Path(temp_path)
-    
-    try:
-        # Write content to temp file
-        print(f"DEBUG: Writing {len(content)} bytes to temp file", file=sys.stderr)
-        os.write(fd, content)
-        os.close(fd)
-        
-        # Try to link temp to target atomically - fails if target exists
-        try:
-            os.link(temp_path, file_path)
-            temp_path.unlink()  # Clean up temp file
-            print(f"DEBUG: File linked successfully to {file_path.name}", file=sys.stderr)
-            return (True, False)
-        except FileExistsError:
-            temp_path.unlink()  # Clean up temp file
-            return (False, True)
-            
-    except Exception as e:
-        # Clean up temp file on any error
-        try:
-            os.close(fd)
-        except:
-            pass
-        if temp_path.exists():
-            temp_path.unlink()
-        raise
 
 
 def build_valid_parcel_locations() -> set:
@@ -448,44 +267,43 @@ def handle_generate_code(form_data: dict, data_dir: Path) -> Tuple[str, list, by
     
     # Generate code and try to save it
     # Try up to 10 times in case of collision (very unlikely)
-    for _ in range(10):
-        code = generate_code()
-        access_file = data_dir / 'access' / f'{code}.txt'
-        
-        # Write backer-id, admin-name, notes to access file
-        # Format: line 0 = backer-id, line 1 = admin-name, line 2 = notes (NO field name prefixes)
-        # Get admin name from admin file
-        admin_file = data_dir / 'admins' / f'{admin_id}.txt'
-        if admin_file.exists():
-            try:
-                admin_name = admin_file.read_text(encoding='utf-8').split('\n', 1)[0].strip()
-                if not admin_name:
+    try:
+        with DATA_LOCK.acquire(timeout=30):
+            for _ in range(10):
+                code = generate_code()
+                access_file = data_dir / 'access' / f'{code}.txt'
+                
+                # Check if code already exists
+                if access_file.exists():
+                    continue  # Try again with new code
+                
+                # Get admin name from admin file
+                admin_file = data_dir / 'admins' / f'{admin_id}.txt'
+                if admin_file.exists():
+                    admin_name = admin_file.read_text(encoding='utf-8').split('\n', 1)[0].strip()
+                    if not admin_name:
+                        admin_name = "[Could not read admin name]"
+                else:
                     admin_name = "[Could not read admin name]"
-            except (FileNotFoundError, Exception):
-                admin_name = "[Could not read admin name]"
-        else:
-            admin_name = "[Could not read admin name]"
-        
-        # Write: line 0=backer_id, line 1=admin_name, line 2=notes
-        content = f"{backer_id}\n{admin_name}\n{notes}"
-        
-        # Try to atomically create access file
-        success, _ = atomic_add_file(access_file, content)
-        if success:
-            # If parcel location specified, claim it using lock-based system
-            if parcel_location:
-                status, error_message = claim_parcel(parcel_location, code, data_dir)
-                if status == 'error':
-                    # Failed to claim - delete the access file we just created
-                    try:
+                
+                # Write: line 0=backer_id, line 1=admin_name, line 2=notes
+                content = f"{backer_id}\n{admin_name}\n{notes}"
+                
+                # Create access file
+                access_file.parent.mkdir(parents=True, exist_ok=True)
+                access_file.write_text(content, encoding='utf-8')
+                
+                # If parcel location specified, claim it
+                if parcel_location:
+                    status, error_message = claim_parcel(parcel_location, code, data_dir)
+                    if status == 'error':
+                        # Failed to claim - delete the access file we just created
                         access_file.unlink()
-                    except Exception:
-                        pass
-                    return send_json({'status': 'error', 'message': error_message})
-            
-            return send_json({'status': 'success', 'code': code})
-        
-        # Code already exists, try again with new code
+                        return send_json({'status': 'error', 'message': error_message})
+                
+                return send_json({'status': 'success', 'code': code})
+    except Timeout:
+        return send_json({'status': 'error', 'message': 'Server busy, try again'})
     
     return send_json({'status': 'error', 'message': 'Failed to generate unique code'})
 
@@ -497,63 +315,60 @@ def handle_get_codes(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]
     if not check_admin_auth(admin_id, data_dir):
         return send_json({'status': 'error', 'message': 'Not authorized', 'code': 401})
     
-    # Read all access files
-    access_dir = data_dir / 'access'
-    if not access_dir.exists():
-        return send_json({'status': 'success', 'codes': []})
-    
-    codes = []
-    for access_file in access_dir.glob('*.txt'):
-        try:
-            code = access_file.stem
+    try:
+        with DATA_LOCK.acquire(timeout=30):
+            # Read all access files
+            access_dir = data_dir / 'access'
+            if not access_dir.exists():
+                return send_json({'status': 'success', 'codes': []})
             
-            # Get timestamp from file modification time
-            timestamp = int(access_file.stat().st_mtime)
-            
-            # Read access file
-            # Format: line 0 = backer-id, line 1 = admin-name, line 2+ = notes (can have newlines)
-            content = access_file.read_text(encoding='utf-8')
-            lines = content.split('\n', 2)
-            backer_id = lines[0].strip() if len(lines) > 0 else ''
-            admin_name = lines[1].strip() if len(lines) > 1 else ''
-            notes = lines[2].strip() if len(lines) > 2 else ''
-            
-            # Check if location file exists
-            location_file = data_dir / 'locations' / f'{code}.txt'
-            parcel_location = ''
-            if location_file.exists():
-                try:
+            codes = []
+            for access_file in access_dir.glob('*.txt'):
+                code = access_file.stem
+                
+                # Get timestamp from file modification time
+                timestamp = int(access_file.stat().st_mtime)
+                
+                # Read access file
+                # Format: line 0 = backer-id, line 1 = admin-name, line 2+ = notes (can have newlines)
+                content = access_file.read_text(encoding='utf-8')
+                lines = content.split('\n', 2)
+                backer_id = lines[0].strip() if len(lines) > 0 else ''
+                admin_name = lines[1].strip() if len(lines) > 1 else ''
+                notes = lines[2].strip() if len(lines) > 2 else ''
+                
+                # Check if location file exists
+                location_file = data_dir / 'locations' / f'{code}.txt'
+                parcel_location = ''
+                if location_file.exists():
                     parcel_location = location_file.read_text(encoding='utf-8').strip()
-                except FileNotFoundError:
-                    pass  # File deleted, leave parcel_location empty
-            
-            # Check if parcel image exists
-            status = 'free'
-            if parcel_location:
-                parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
-                if parcel_file.exists():
-                    # Check if it's a placeholder (1x1 image)
-                    if is_placeholder_image(parcel_file):
-                        status = 'placeholdered'
+                
+                # Check if parcel image exists
+                status = 'free'
+                if parcel_location:
+                    parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
+                    if parcel_file.exists():
+                        # Check if it's a placeholder (1x1 image)
+                        if is_placeholder_image(parcel_file):
+                            status = 'placeholdered'
+                        else:
+                            status = 'uploaded'
                     else:
-                        status = 'uploaded'
-                else:
-                    status = 'claimed'
+                        status = 'claimed'
+                
+                codes.append({
+                    'code': code,
+                    'backer-id': backer_id,
+                    'admin-name': admin_name,
+                    'notes': notes,
+                    'parcel-location': parcel_location,
+                    'status': status,
+                    'timestamp': timestamp
+                })
             
-            codes.append({
-                'code': code,
-                'backer-id': backer_id,
-                'admin-name': admin_name,
-                'notes': notes,
-                'parcel-location': parcel_location,
-                'status': status,
-                'timestamp': timestamp
-            })
-        except Exception:
-            # Skip files that can't be read (e.g., deleted during iteration)
-            continue
-    
-    return send_json({'status': 'success', 'codes': codes})
+            return send_json({'status': 'success', 'codes': codes})
+    except Timeout:
+        return send_json({'status': 'error', 'message': 'Server busy, try again'})
 
 
 def handle_get_parcel(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]:
@@ -563,27 +378,31 @@ def handle_get_parcel(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes
     if not code:
         return send_json({'status': 'error', 'message': 'code not found'})
     
-    # Check if code exists in access directory
-    access_file = data_dir / 'access' / f'{code}.txt'
-    if not access_file.exists():
-        return send_json({'status': 'error', 'message': 'code not found'})
-    
-    # Check if this code has a location assigned
-    location_file = data_dir / 'locations' / f'{code}.txt'
-    if not location_file.exists():
-        return send_json({'status': 'free', 'message': 'no location assigned'})
-    
-    # Get the parcel location
-    parcel_location = location_file.read_text(encoding='utf-8').strip()
-    
-    # Check if actual parcel image file exists
-    parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
-    if parcel_file.exists() and not is_placeholder_image(parcel_file):
-        # Real image has been uploaded
-        return send_json({'status': 'uploaded', 'parcel-location': parcel_location})
-    else:
-        # Location claimed but image not uploaded yet
-        return send_json({'status': 'claimed', 'parcel-location': parcel_location})
+    try:
+        with DATA_LOCK.acquire(timeout=30):
+            # Check if code exists in access directory
+            access_file = data_dir / 'access' / f'{code}.txt'
+            if not access_file.exists():
+                return send_json({'status': 'error', 'message': 'code not found'})
+            
+            # Check if this code has a location assigned
+            location_file = data_dir / 'locations' / f'{code}.txt'
+            if not location_file.exists():
+                return send_json({'status': 'free', 'message': 'no location assigned'})
+            
+            # Get the parcel location
+            parcel_location = location_file.read_text(encoding='utf-8').strip()
+            
+            # Check if actual parcel image file exists
+            parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
+            if parcel_file.exists() and not is_placeholder_image(parcel_file):
+                # Real image has been uploaded
+                return send_json({'status': 'uploaded', 'parcel-location': parcel_location})
+            else:
+                # Location claimed but image not uploaded yet
+                return send_json({'status': 'claimed', 'parcel-location': parcel_location})
+    except Timeout:
+        return send_json({'status': 'error', 'message': 'Server busy, try again'})
 
 
 def handle_get_parcels(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]:
@@ -592,29 +411,31 @@ def handle_get_parcels(form_data: dict, data_dir: Path) -> Tuple[str, list, byte
     Returns a list of all claimed parcel locations (locations assigned to codes).
     No authorization required.
     """
-    locations_dir = data_dir / 'locations'
-    
-    # Use a set to ensure each location only appears once
-    claimed_locations = set()
-    
-    if locations_dir.exists():
-        for location_file in locations_dir.glob('*.txt'):
-            # Read the parcel location from the file
-            try:
-                location = location_file.read_text(encoding='utf-8').strip()
-                if location:
-                    claimed_locations.add(location)
-            except Exception:
-                # Skip files that can't be read
-                continue
-    
-    # Return JSON array of claimed parcel locations (sorted for consistency)
-    return send_json({'status': 'success', 'parcels': sorted(claimed_locations)})
+    try:
+        with DATA_LOCK.acquire(timeout=30):
+            locations_dir = data_dir / 'locations'
+            
+            # Use a set to ensure each location only appears once
+            claimed_locations = set()
+            
+            if locations_dir.exists():
+                for location_file in locations_dir.glob('*.txt'):
+                    # Read the parcel location from the file
+                    location = location_file.read_text(encoding='utf-8').strip()
+                    if location:
+                        claimed_locations.add(location)
+            
+            # Return JSON array of claimed parcel locations (sorted for consistency)
+            return send_json({'status': 'success', 'parcels': sorted(claimed_locations)})
+    except Timeout:
+        return send_json({'status': 'error', 'message': 'Server busy, try again'})
 
 
 
 def add_parcel_file(parcel_location: str, content: bytes, data_dir: Path) -> bool:
-    """Atomically add a parcel image file if none exists ( placeholder counts as none).
+    """Add a parcel image file if none exists (placeholder counts as none).
+    
+    NOTE: This function must be called while holding DATA_LOCK.
     
     Args:
         parcel_location: Parcel location (e.g., 'A1', 'B12')
@@ -630,31 +451,22 @@ def add_parcel_file(parcel_location: str, content: bytes, data_dir: Path) -> boo
         # File exists - check if it's a placeholder
         if is_placeholder_image(parcel_file):
             # Replace placeholder with real image
-            # there is a race condition here, but it is ok becuase when we call here, we have alreeady claimed the parcel
-            # so we can only race with ourselves. 
-            atomic_replace_binary_file(parcel_file, content)
+            parcel_file.write_bytes(content)
             return True
         else:
             # Real image already exists
             return False
     else:
-        # No file exists - try to add atomically
-        success, file_existed = atomic_add_binary_file(parcel_file, content)
-        return success
+        # No file exists - write it
+        parcel_file.parent.mkdir(parents=True, exist_ok=True)
+        parcel_file.write_bytes(content)
+        return True
 
 
 def claim_parcel(parcel_location: str, code: str, data_dir: Path) -> Tuple[str, Optional[str]]:
-    """Attempt to claim a parcel location using lock-based atomic system.
-
-    If we return success or preallocated then you can take your time uploading the image - 
-    no one else can access your parcel while the location file exists. 
+    """Claim a parcel location for a code.
     
-    Uses a lock file to prevent race conditions during the claim process:
-    1. Check if this code already has this location (preallocated)
-    2. Create lock file atomically
-    3. Check if location already claimed by another code
-    4. Create location file atomically
-    5. Delete lock file
+    NOTE: This function must be called while holding DATA_LOCK.
     
     Args:
         parcel_location: Parcel location to claim (e.g., 'A1', 'B12')
@@ -669,61 +481,31 @@ def claim_parcel(parcel_location: str, code: str, data_dir: Path) -> Tuple[str, 
     """
     location_file = data_dir / 'locations' / f'{code}.txt'
     
-    # Step 1: Check if code already has a location assigned
+    # Check if code already has a location assigned
     if location_file.exists():
-        try:
-            existing_location = location_file.read_text(encoding='utf-8').strip()
-            if existing_location == parcel_location:
-                # Code already has this exact location - that's fine
-                return ('preallocated', None)
-            else:
-                # Code has a different location
-                return ('error', f'Wrong location (assigned to {existing_location})')
-        except FileNotFoundError:
-            # File was deleted between exists check and read - treat as not existing
-            pass
+        existing_location = location_file.read_text(encoding='utf-8').strip()
+        if existing_location == parcel_location:
+            # Code already has this exact location - that's fine
+            return ('preallocated', None)
+        else:
+            # Code has a different location
+            return ('error', f'Wrong location (assigned to {existing_location})')
     
-    # Step 2: Try to atomically create lock file
-    lock_file = data_dir / 'locks' / f'{parcel_location}.txt'
-    lock_success, _ = atomic_add_file(lock_file, code)
-    if not lock_success:
-        # Someone else is claiming this location right now
-        # In practice you would need pretty amazing luck to see this.
-        return ('error', 'lock contention - try again')
+    # Check if parcel location is already claimed by another code
+    claiming_code = is_parcel_location_claimed(parcel_location, data_dir)
+    if claiming_code:
+        return ('error', 'parcel already claimed')
     
-    try:
-        # Step 3: Check if parcel location is already claimed by another code
-        claiming_code = is_parcel_location_claimed(parcel_location, data_dir)
-        if claiming_code and claiming_code != code:
-            # Already claimed by a different code
-            lock_file.unlink()  # Clean up lock
-            return ('error', 'parcel already claimed')
-        
-        # Step 4: Try to create location file atomically
-        success, existing_content = atomic_add_file(location_file, parcel_location)
-        
-        if not success:
-            # Code already used (race condition - another instance created it)
-            lock_file.unlink()  # Clean up lock
-            return ('error', 'code already used')
-        
-        # Step 5: Success! Delete lock file
-        lock_file.unlink()
-        return ('success', None)
-        
-    except Exception as e:
-        # Clean up lock on any error
-        try:
-            lock_file.unlink()
-        except:
-            pass
-        raise
+    # Claim the location
+    location_file.parent.mkdir(parents=True, exist_ok=True)
+    location_file.write_text(parcel_location, encoding='utf-8')
+    return ('success', None)
 
 
 def is_parcel_location_claimed(parcel_location: str, data_dir: Path) -> Optional[str]:
     """Check if a parcel location is already claimed by scanning all location files.
 
-    NOT ATOMIC! You need another way to guard against races. 
+    NOTE: This function must be called while holding DATA_LOCK.
     
     Args:
         parcel_location: Parcel location to check (e.g., 'A1', 'B12')
@@ -772,10 +554,12 @@ def is_placeholder_image(parcel_file: Path) -> bool:
 
 
 def replace_with_placeholder(parcel_file: Path) -> None:
-    """Atomically replace a parcel file with a 1x1 transparent placeholder PNG.
+    """Replace a parcel file with a 1x1 transparent placeholder PNG.
     
-    Creates a placeholder and atomically swaps it with the existing file.
-    This ensures the builder sees the timestamp change.
+    Uses temp-then-replace pattern so external readers (like the build script)
+    never see a partial write. This ensures the builder sees the timestamp change.
+    
+    NOTE: This function must be called while holding DATA_LOCK.
     
     Args:
         parcel_file: Path to parcel file to replace
@@ -811,12 +595,10 @@ def replace_with_placeholder(parcel_file: Path) -> None:
 def delete_parcel_image(parcel_location: str, data_dir: Path) -> Tuple[bool, Optional[str]]:
     """Delete a parcel image file by replacing it with a 1x1 transparent placeholder.
 
-    I KNOW this is ugly because we will have these empty parcels hanging around in the parcels directory,
-    but we need to do something becuase therer is no way for the builder to notice the difference between
-    "there is no parcel here" and "there was a parcel here but now it is deleted" without storing state somewhere.
+    NOTE: This function must be called while holding DATA_LOCK.
     
-    Uses atomic replacement to catch the extreemly unlikely race where one user deletes a parcel and in the *instant* between
-    the delete and the new placeholder getting saved another user uploads to the same location. Sorry, I worry about these things. :)
+    We replace with a placeholder rather than deleting so the builder can notice the difference between
+    "there is no parcel here" and "there was a parcel here but now it is deleted" via timestamp changes.
 
     Args:
         parcel_location: Parcel location string (e.g., 'A1', 'B12', 'AL38')
@@ -852,28 +634,29 @@ def handle_delete_image(form_data: dict, data_dir: Path) -> Tuple[str, list, byt
     if not code:
         return send_json({'status': 'error', 'message': 'code required'})
     
-    # Check if code exists
-    access_file = data_dir / 'access' / f'{code}.txt'
-    if not access_file.exists():
-        return send_json({'status': 'error', 'message': 'code not found'})
-    
-    # Get the location file
-    location_file = data_dir / 'locations' / f'{code}.txt'
-    if not location_file.exists():
-        return send_json({'status': 'error', 'message': 'No location assigned to this code'})
-    
-    # Get the parcel location
     try:
-        parcel_location = location_file.read_text(encoding='utf-8').strip()
-    except FileNotFoundError:
-        return send_json({'status': 'error', 'message': 'No location assigned to this code'})
-    
-    # Delete the parcel image file
-    success, error_message = delete_parcel_image(parcel_location, data_dir)
-    if success:
-        return send_json({'status': 'success', 'message': 'Image deleted'})
-    else:
-        return send_json({'status': 'error', 'message': error_message})
+        with DATA_LOCK.acquire(timeout=30):
+            # Check if code exists
+            access_file = data_dir / 'access' / f'{code}.txt'
+            if not access_file.exists():
+                return send_json({'status': 'error', 'message': 'code not found'})
+            
+            # Get the location file
+            location_file = data_dir / 'locations' / f'{code}.txt'
+            if not location_file.exists():
+                return send_json({'status': 'error', 'message': 'No location assigned to this code'})
+            
+            # Get the parcel location
+            parcel_location = location_file.read_text(encoding='utf-8').strip()
+            
+            # Delete the parcel image file
+            success, error_message = delete_parcel_image(parcel_location, data_dir)
+            if success:
+                return send_json({'status': 'success', 'message': 'Image deleted'})
+            else:
+                return send_json({'status': 'error', 'message': error_message})
+    except Timeout:
+        return send_json({'status': 'error', 'message': 'Server busy, try again'})
 
 
 def handle_delete_location(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]:
@@ -892,37 +675,30 @@ def handle_delete_location(form_data: dict, data_dir: Path) -> Tuple[str, list, 
     if not code:
         return send_json({'status': 'error', 'message': 'code required'})
     
-    # Check if code exists
-    access_file = data_dir / 'access' / f'{code}.txt'
-    if not access_file.exists():
-        return send_json({'status': 'error', 'message': 'code not found'})
-    
-    # Get the location file
-    location_file = data_dir / 'locations' / f'{code}.txt'
-    if not location_file.exists():
-        return send_json({'status': 'error', 'message': 'No location assigned to this code'})
-    
-    # Get the parcel location
     try:
-        parcel_location = location_file.read_text(encoding='utf-8').strip()
-    except FileNotFoundError:
-        return send_json({'status': 'error', 'message': 'No location assigned to this code'})
-    
-    # Delete both the location file and the parcel image file
-    # Note that we delete the location first becuase then the image will be hanging so no
-    # race condition can occur. But there is one failure mode if everything crashes exactly when 
-    # the location file is deleted but the image file is not. In that case, the image will be 
-    # hanging. I can live with that. :)
-    try:
-        # Delete location file first
-        location_file.unlink()
-        
-        # Delete parcel image if it exists (ignore errors since location is already deleted)
-        delete_parcel_image(parcel_location, data_dir)
-        
-        return send_json({'status': 'success', 'message': 'Location and image deleted'})
-    except Exception as e:
-        return send_json({'status': 'error', 'message': f'Failed to delete: {e}'})
+        with DATA_LOCK.acquire(timeout=30):
+            # Check if code exists
+            access_file = data_dir / 'access' / f'{code}.txt'
+            if not access_file.exists():
+                return send_json({'status': 'error', 'message': 'code not found'})
+            
+            # Get the location file
+            location_file = data_dir / 'locations' / f'{code}.txt'
+            if not location_file.exists():
+                return send_json({'status': 'error', 'message': 'No location assigned to this code'})
+            
+            # Get the parcel location
+            parcel_location = location_file.read_text(encoding='utf-8').strip()
+            
+            # Delete location file
+            location_file.unlink()
+            
+            # Delete parcel image if it exists
+            delete_parcel_image(parcel_location, data_dir)
+            
+            return send_json({'status': 'success', 'message': 'Location and image deleted'})
+    except Timeout:
+        return send_json({'status': 'error', 'message': 'Server busy, try again'})
 
 
 def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str, list, bytes]:
@@ -937,11 +713,6 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
     code = form_data.get('code', [''])[0].strip()
     if not code:
         return send_json({'status': 'error', 'message': 'Need code'})
-    
-    # Check if code exists in access directory
-    access_file = data_dir / 'access' / f'{code}.txt'
-    if not access_file.exists():
-        return send_json({'status': 'error', 'message': 'Invalid code'})
     
     # Get parcel location
     parcel_location = form_data.get('parcel-location', [''])[0].strip()
@@ -964,30 +735,37 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
     if not is_valid:
         return send_json({'status': 'error', 'message': error_message})
     
-    # Attempt to claim the parcel location (handles both preallocated and new claims)
-    claim_status, error_message = claim_parcel(parcel_location, code, data_dir)
-    if claim_status == 'error':
-        return send_json({'status': 'error', 'message': error_message})
-    
-    # Success or preallocated - we have the location claimed
-    location_was_preallocated = (claim_status == 'preallocated')
-    
-    # Try to atomically add parcel image file (or replace if placeholder)
-    success = add_parcel_file(parcel_location, converted_image_data, data_dir)
-    
-    if not success:
-        # Location already has a real image - rollback location file only if we just created it
-        if not location_was_preallocated:
-            location_file = data_dir / 'locations' / f'{code}.txt'
-            try:
-                location_file.unlink()
-            except Exception as e:
-                print(f"WARNING: Failed to rollback location file: {e}", file=sys.stderr)
-        
-        return send_json({'status': 'used', 'location': parcel_location})
-    
-    # Success!
-    return send_json({'status': 'success', 'location': parcel_location})
+    # All file operations must be done while holding the lock
+    try:
+        with DATA_LOCK.acquire(timeout=30):
+            # Check if code exists in access directory
+            access_file = data_dir / 'access' / f'{code}.txt'
+            if not access_file.exists():
+                return send_json({'status': 'error', 'message': 'Invalid code'})
+            
+            # Attempt to claim the parcel location
+            claim_status, error_message = claim_parcel(parcel_location, code, data_dir)
+            if claim_status == 'error':
+                return send_json({'status': 'error', 'message': error_message})
+            
+            # Success or preallocated - we have the location claimed
+            location_was_preallocated = (claim_status == 'preallocated')
+            
+            # Try to add parcel image file (or replace if placeholder)
+            success = add_parcel_file(parcel_location, converted_image_data, data_dir)
+            
+            if not success:
+                # Location already has a real image - rollback location file only if we just created it
+                if not location_was_preallocated:
+                    location_file = data_dir / 'locations' / f'{code}.txt'
+                    location_file.unlink()
+                
+                return send_json({'status': 'used', 'location': parcel_location})
+            
+            # Success!
+            return send_json({'status': 'success', 'location': parcel_location})
+    except Timeout:
+        return send_json({'status': 'error', 'message': 'Server busy, try again'})
 
 
 def serve_static_file(file_path: Path) -> Tuple[str, list, bytes]:
