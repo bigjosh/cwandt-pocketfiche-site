@@ -501,6 +501,11 @@
   map.createPane('goldDiskPane');
   map.getPane('goldDiskPane').style.zIndex = 150;
   
+  // Create a renderer with more padding
+  // this makes it so when we pan and zoom out there is already some more disk waiting for us.
+  // otherwise there is just black while we wait for it to redraw.
+  const myRenderer = L.svg({ padding: 1.0, pane: 'goldDiskPane' });
+  
   const circleLayer = L.layerGroup();
   
   const innerDiameterMicrometers = disk_diameter_um;
@@ -521,7 +526,7 @@
     fillOpacity: 1,                 // Override Leaflet's default 0.2 opacity
     pane: 'goldDiskPane',           // Use custom pane to render behind tiles
     interactive: false,             // Don't capture mouse events
-    //renderer: svgRenderer  // Explicitly use SVG renderer
+    renderer: myRenderer            // Use SVG renderer with padding for smoother panning/zooming
   });
   
   circleLayer.addLayer(circle);
@@ -834,13 +839,7 @@
   
   // Add default layers - gold disk first (behind), then parcels (on top)
 
-  // Create a renderer with more padding
-  // this makes it so when we pan and zoom out there is already some more disk waiting for us.
-  // otherwise there is just black while we wait for it to redraw.
-const myRenderer = L.svg({ padding: 1.0 });
-
-
-  circleLayer.addTo(map,renderer: myRenderer);
+  circleLayer.addTo(map);
   //cwandtImageOverlayMarker.addTo(map);
   
   // Get the actual logo image element that Leaflet inserted into the DOM
