@@ -152,9 +152,10 @@ def create_world_png(parcels_dir: Path, output_file: Path, compress: bool = True
             parcel_path = parcels_dir / f"{parcel_label}.png"
             
             # Calculate position in world image
-            # Row 0 (A) is at the top, Row 37 (AL) is at the bottom
+            # Row 0 (A) is at the bottom, Row 37 (AL) is at the top
+            # Invert y-coordinate to match incremental_build.py layout
             x_pos = col * TILE_SIZE
-            y_pos = row * TILE_SIZE
+            y_pos = (GRID_SIZE - 1 - row) * TILE_SIZE
             
             if parcel_path.exists():
                 # Load and paste parcel image
