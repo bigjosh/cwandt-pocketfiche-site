@@ -273,7 +273,17 @@ We will allow fractional zooms becuase really in the browser you can't see indiv
 We will always start at at zoom level that fits the centermost 2x2 tiles in the canvas (and maybe a 25-50% min margin around that so people can see there is more in each directtion). These are special tiles that CW&T made and we want them to be the first thing the user sees.  
 
 
+# Utilities
+
+## `obp.py`
+
+This script creates a single full-resolution PNG of the entire world by composing all individual parcel PNG files. The output is 19000x19000 pixels (38x38 parcels at 500x500 pixels each). Areas without parcel files are transparent.
 
 
+## `incremental_build.py`
 
+Incrementally updates the world to match any new files in parcels. 
 
+## `parcel_watcher.py`
+
+This script monitors the `parcels` directory for changes and runs `incremental_build.py` when a new parcel is added.
