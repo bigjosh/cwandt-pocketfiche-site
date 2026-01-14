@@ -808,13 +808,8 @@ def create_full_world_mosaic(parcels_dir: Path, output_dir: Path):
     draw = ImageDraw.Draw(full_world)
     center = WORLD_SIZE / 2
     radius = WORLD_SIZE / 2 - 1  # -1 to keep circle inside image bounds
-
-    # Draw circle with 2-pixel width (draw twice, offset by 1 pixel)
-    circle_color = (0, 0, 0)  # Black
-    for offset in [0, 1]:
-        r = radius - offset
-        bbox = [center - r, center - r, center + r, center + r]
-        draw.ellipse(bbox, outline=circle_color, width=1)
+    bbox = [center - radius, center - radius, center + radius, center + radius]
+    draw.ellipse(bbox, outline=(0, 0, 0), width=2)
 
     # Save to output directory root
     output_path = output_dir / "full-world.png"
