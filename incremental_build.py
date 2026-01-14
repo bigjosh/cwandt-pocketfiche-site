@@ -20,6 +20,7 @@ Usage:
 import argparse
 import math
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -725,9 +726,107 @@ def compress_changed_tiles(changed_tiles: List[Path]):
         print(f"   No change: {no_compression_count} tiles (already optimal)")
 
 
+def create_full_world_mosaic(parcels_dir: Path, output_dir: Path):
+    """Create a full-resolution mosaic of all parcels with circular boundary.
+
+    Assembles all 38x38 parcels into a single 19,000x19,000 pixel image,
+    leaving blank areas where no parcel exists, and draws a 2-pixel circular
+    boundary around the entire composite.
+
+    Args:
+        parcels_dir: Path to directory containing parcel PNG files
+        output_dir: Root output directory where full-world.png will be saved
+    """
+    # Constants
+    PARCEL_SIZE = 500
+    WORLD_SIZE = GRID_SIZE * PARCEL_SIZE  # 38 * 500 = 19,000 pixels
+
+    print(f"🌍 Creating full-world mosaic ({WORLD_SIZE}x{WORLD_SIZE} pixels)...")
+
+    # Create blank canvas (white background)
+    full_world = Image.new('RGB', (WORLD_SIZE, WORLD_SIZE), (255, 255, 255))
+
+    # Regex to match parcel filenames
+    FILENAME_RE = re.compile(r"^([A-Za-z]+)(\d+)\.png$", re.IGNORECASE)
+
+    parcel_count = 0
+
+    # Load and place all parcels
+    if parcels_dir.exists() and parcels_dir.is_dir():
+        for entry in sorted(parcels_dir.iterdir()):
+            if not entry.is_file() or not entry.suffix.lower() == '.png':
+                continue
+
+            # Parse filename to get row/col
+            m = FILENAME_RE.match(entry.name)
+            if not m:
+                continue
+
+            row_letters = m.group(1).upper()
+            try:
+                col = int(m.group(2)) - 1  # Convert to 0-based
+            except ValueError:
+                continue
+
+            row = index_of_letter(row_letters)
+
+            # Check bounds
+            if row < 0 or row >= GRID_SIZE or col < 0 or col >= GRID_SIZE:
+                continue
+
+            # Load parcel image
+            try:
+                parcel_img = Image.open(entry)
+                if parcel_img.size != (PARCEL_SIZE, PARCEL_SIZE):
+                    print(f"   ⚠️  Warning: {entry.name} is {parcel_img.size}, expected {PARCEL_SIZE}x{PARCEL_SIZE}")
+                    continue
+
+                # Convert to RGB (handling any transparency)
+                if parcel_img.mode == 'RGBA':
+                    # Create white background for alpha blending
+                    bg = Image.new('RGB', parcel_img.size, (255, 255, 255))
+                    bg.paste(parcel_img, mask=parcel_img.split()[3])  # Use alpha channel as mask
+                    parcel_img = bg
+                elif parcel_img.mode != 'RGB':
+                    parcel_img = parcel_img.convert('RGB')
+
+                # Calculate position: row 0 (A) at top, col 0 (column 1) at left
+                x = col * PARCEL_SIZE
+                y = row * PARCEL_SIZE
+
+                # Paste parcel into full world
+                full_world.paste(parcel_img, (x, y))
+                parcel_count += 1
+
+            except Exception as e:
+                print(f"   ❌ Failed to load {entry.name}: {e}")
+
+    print(f"   Placed {parcel_count} parcels")
+
+    # Draw 2-pixel circular boundary
+    # The circle should inscribe the square image (diameter = WORLD_SIZE)
+    draw = ImageDraw.Draw(full_world)
+    center = WORLD_SIZE / 2
+    radius = WORLD_SIZE / 2 - 1  # -1 to keep circle inside image bounds
+
+    # Draw circle with 2-pixel width (draw twice, offset by 1 pixel)
+    circle_color = (0, 0, 0)  # Black
+    for offset in [0, 1]:
+        r = radius - offset
+        bbox = [center - r, center - r, center + r, center + r]
+        draw.ellipse(bbox, outline=circle_color, width=1)
+
+    # Save to output directory root
+    output_path = output_dir / "full-world.png"
+    full_world.save(output_path, 'PNG')
+
+    file_size = output_path.stat().st_size
+    print(f"   ✅ Saved {output_path} ({file_size / (1024*1024):.1f} MB)")
+
+
 def incremental_build(parcels_dir: Path, output_dir: Path, compress: bool = True):
     """Perform timestamp-based incremental build of world tiles.
-    
+
     Args:
         parcels_dir: Path to directory containing parcel PNG files
         output_dir: Root output directory
@@ -762,7 +861,12 @@ def incremental_build(parcels_dir: Path, output_dir: Path, compress: bool = True
         print(f"🗜️  Phase 3: Compressing {len(changed_tiles)} changed tiles...")
         compress_changed_tiles(changed_tiles)
         print()
-    
+
+    # Phase 4: Create full-world mosaic
+    print(f"🗺️  Phase 4: Building full-world mosaic...")
+    create_full_world_mosaic(parcels_dir, output_dir)
+    print()
+
     return 0
 
 
