@@ -127,10 +127,10 @@ Download....
 https://github.com/oxipng/oxipng
 ```
 
-...and run this comand from inside the docs/tiles directory...
+...and run this command from the project root directory...
 
 ```
-bin\oxipng "docs\*.png" -r -o max --strip all --zopfli
+bin\oxipng "docs\world\**\*.png" -r -o max --strip all --zopfli
 ```
 
 - `-o max` always optimize for maximum compression even if slow
@@ -282,7 +282,14 @@ This script creates a single full-resolution PNG of the entire world by composin
 
 ## `incremental_build.py`
 
-Incrementally updates the world to match any new files in parcels. 
+Incrementally updates the world to match any new files in parcels. Uses file timestamps to rebuild only out-of-date tiles.
+
+Usage:
+```
+python incremental_build.py                    # Incremental update
+python incremental_build.py --init             # Initialize/full rebuild (clears output first)
+python incremental_build.py --no-compress      # Skip PNG compression
+``` 
 
 ## `parcel_watcher.py`
 
