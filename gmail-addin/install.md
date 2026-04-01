@@ -24,6 +24,13 @@
 11. Click **Share** (top right) and add each user as an **Editor**
 12. Each user opens the project URL with the embeded "OPEN" button, then does **Deploy** > **Test deployments** > **Install**
 
+## Publish to the Marketplace
+
+1. Make a GCP project and add the code.
+2. Add all the test users under "Audience"
+1. Enable to Marketplace API
+2. Add all the test users again under "Store List->Draft Users"
+
 ## Usage
 
 1. Open Gmail and compose a new email (or reply to one)
