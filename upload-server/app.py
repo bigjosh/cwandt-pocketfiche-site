@@ -863,6 +863,16 @@ def parse_multipart(environ) -> Tuple[dict, dict]:
     return (form_data, file_data)
 
 
+def _add_cors(headers):
+    """Add CORS headers so cross-origin clients (e.g. claim.html hosted on
+    a partner domain like southslopenano.com) can call this API."""
+    return list(headers) + [
+        ('Access-Control-Allow-Origin', '*'),
+        ('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'),
+        ('Access-Control-Allow-Headers', 'Content-Type'),
+    ]
+
+
 def application(environ, start_response):
     """WSGI application entry point."""
     try:
@@ -871,7 +881,16 @@ def application(environ, start_response):
         path = environ.get('PATH_INFO', '/')
         query_string = environ.get('QUERY_STRING', '')
         print(f"DEBUG: {method} {path}{'?' + query_string if query_string else ''}", file=sys.stderr)
-        
+
+        # CORS preflight: respond with allowed methods/headers and no body.
+        if method == 'OPTIONS':
+            headers = _add_cors([
+                ('Content-Length', '0'),
+                ('Access-Control-Max-Age', '86400'),
+            ])
+            start_response('204 No Content', headers)
+            return [b'']
+
         # Check if this is a static file request (no command parameter)
         # This handles requests like /admin.html or /upload.html
         if method == 'GET' and 'command=' not in query_string:
@@ -881,28 +900,28 @@ def application(environ, start_response):
             # If no file specified or root, don't serve anything
             if not requested_file or requested_file == '/':
                 status, headers, body = send_error('No file specified', 400)
-                start_response(status, headers)
+                start_response(status, _add_cors(headers))
                 return [body]
-            
+
             # Security: Only allow serving files from the app directory
             # No directory traversal allowed
             if '..' in requested_file or requested_file.startswith('/'):
                 status, headers, body = send_error('Invalid file path', 403)
-                start_response(status, headers)
+                start_response(status, _add_cors(headers))
                 return [body]
-            
+
             # Get the directory where this script is located
             app_dir = Path(__file__).parent
             file_path = app_dir / requested_file
-            
+
             # Serve the static file
             status, headers, body = serve_static_file(file_path)
-            start_response(status, headers)
+            start_response(status, _add_cors(headers))
             return [body]
-        
+
         # API request - get data directory
         data_dir = get_data_dir()
-        
+
         # Parse form data
         if method == 'POST':
             form_data, file_data = parse_multipart(environ)
@@ -912,12 +931,12 @@ def application(environ, start_response):
             file_data = {}
         else:
             status, headers, body = send_error('Method not allowed', 405)
-            start_response(status, headers)
+            start_response(status, _add_cors(headers))
             return [body]
-        
+
         # Get command parameter
         command = form_data.get('command', [''])[0].strip()
-        
+
         # Route to appropriate handler
         if command == 'generate-code':
             status, headers, body = handle_generate_code(form_data, data_dir)
@@ -935,19 +954,19 @@ def application(environ, start_response):
             status, headers, body = handle_upload(form_data, file_data, data_dir)
         else:
             status, headers, body = send_error(f'Unknown command: {command}', 400)
-        
+
         # Send response
-        start_response(status, headers)
+        start_response(status, _add_cors(headers))
         return [body]
-        
+
     except Exception as e:
         # Catch all unhandled exceptions
         print(f"ERROR: Unhandled exception: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
-        
+
         status, headers, body = send_error(f'Internal server error: {str(e)}', 500)
-        start_response(status, headers)
+        start_response(status, _add_cors(headers))
         return [body]
 
 
