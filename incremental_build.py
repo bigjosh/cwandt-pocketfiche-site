@@ -226,44 +226,45 @@ def create_label_tile_maxzoom(label: str) -> Image.Image:
 
 
 def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Image.Image:
-    """Create a tile by combining and downsampling from MAX_ZOOM tiles.
-    
-    Always downsamples directly from MAX_ZOOM to avoid compound downsampling artifacts.
-    For zoom 5, combines 2x2 MAX_ZOOM tiles.
-    For zoom 4, combines 4x4 MAX_ZOOM tiles.
-    For zoom 3, combines 8x8 MAX_ZOOM tiles, etc.
-    
+    """Create a tile by combining and downsampling source tiles.
+
+    Zooms 1..5 downsample directly from MAX_ZOOM (one resize covering
+    2^(MAX_ZOOM-zoom) x 2^(MAX_ZOOM-zoom) tiles) to avoid compound LANCZOS
+    softening. Zoom 0 is special-cased to source from zoom 1 (a single 2x2
+    block) so the combined buffer stays ~4 MB instead of ~4 GB.
+
     Returns:
         PIL Image
     """
-    
-    # Calculate how many MAX_ZOOM tiles contribute to this tile
-    zoom_diff = MAX_ZOOM - zoom
-    tiles_per_side = 2 ** zoom_diff  # 2, 4, 8, 16, 32, 64...
-    
-    # Calculate starting MAX_ZOOM coordinates
-    maxzoom_start_x = x * tiles_per_side
-    maxzoom_start_y = y * tiles_per_side
-    
-    # Get the MAX_ZOOM directory
+
+    # Zoom 0 sources from zoom 1 (4 tiles); all other zooms source from MAX_ZOOM.
+    source_zoom = 1 if zoom == 0 else MAX_ZOOM
+    zoom_diff = source_zoom - zoom
+    tiles_per_side = 2 ** zoom_diff
+
+    # Calculate starting source coordinates
+    source_start_x = x * tiles_per_side
+    source_start_y = y * tiles_per_side
+
+    # Get the source directory
     layer_root = zoom_dir.parent
-    maxzoom_dir = layer_root / str(MAX_ZOOM)
-    
+    source_dir = layer_root / str(source_zoom)
+
     # Create the combined image upfront (using RGBA mode)
     combined_size = TILE_SIZE * tiles_per_side
     combined = Image.new('RGBA', (combined_size, combined_size), (0, 0, 0, 0))  # Transparent
-    
+
     # Load and paste tiles directly into combined image
     all_placeholders = True
-    
+
     for ty in range(tiles_per_side):
         for tx in range(tiles_per_side):
-            tile_x = maxzoom_start_x + tx
-            tile_y = maxzoom_start_y + ty
-            
-            tile_path = maxzoom_dir / str(tile_x) / f"{tile_y}.png"
+            tile_x = source_start_x + tx
+            tile_y = source_start_y + ty
+
+            tile_path = source_dir / str(tile_x) / f"{tile_y}.png"
             if not tile_path.exists():
-                raise Exception(f"MAX_ZOOM tile {tile_path} does not exist")
+                raise Exception(f"Source tile {tile_path} does not exist")
             
             # Open image
             tile_img = Image.open(tile_path)
@@ -290,12 +291,16 @@ def create_tile_from_children(zoom: int, x: int, y: int, zoom_dir: Path) -> Imag
                 # For other modes, convert directly
                 tile_rgba = tile_img.convert('RGBA')
             
-            # Paste directly into combined image
+            # Paste directly into combined image. No mask arg -- mask would
+            # premultiply RGB by alpha and (since LANCZOS resize already
+            # works in premultiplied space) cause RGB to attenuate at edges
+            # when the source has varying alpha (i.e. zoom 0 sourcing from
+            # zoom 1). Tiles are non-overlapping so a direct copy is safe.
             x_pos = tx * TILE_SIZE
             y_pos = ty * TILE_SIZE
-            combined.paste(tile_rgba, (x_pos, y_pos), tile_rgba)
+            combined.paste(tile_rgba, (x_pos, y_pos))
     
-    # Optimization: If all MAX_ZOOM tiles are placeholders, return placeholder
+    # Optimization: If all source tiles are placeholders, return placeholder
     # dont fret about all the work above becuase pasting tiny placeholders is very cheap
     if all_placeholders:
         return placeholder_img
