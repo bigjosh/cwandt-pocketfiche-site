@@ -26,9 +26,14 @@
   
   <!-- Banner at top of screen -->
   <div id="banner">
-    <div class="banner-line">Welcome to the <a href="https://cwandt.com" target="_blank" rel="noopener">CW&amp;T</a> pocket fiche project</div>
+    <div class="banner-line" id="welcome-line">Welcome to the <a href="https://cwandt.com" target="_blank" rel="noopener">CW&amp;T</a> pocket fiche project</div>
     <div class="banner-line">Claim your parcel.</div>
   </div>
+  <script>
+    if (location.href.includes("southslopenano.com")) {
+      document.getElementById("welcome-line").textContent = "The South Slope Nano Mosaic Project";
+    }
+  </script>
   
   <div id="map" aria-label="Pocketfiche parcels map" role="region"></div>
 
