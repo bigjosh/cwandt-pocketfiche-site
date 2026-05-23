@@ -431,6 +431,69 @@ def handle_get_parcels(form_data: dict, data_dir: Path) -> Tuple[str, list, byte
         return send_json({'status': 'error', 'message': 'Server busy, try again'})
 
 
+def get_claimed_parcel_locations(data_dir: Path) -> set:
+    """Return all parcel locations currently assigned to access codes.
+
+    NOTE: This function must be called while holding DATA_LOCK.
+    """
+    claimed_locations = set()
+    locations_dir = data_dir / 'locations'
+
+    if not locations_dir.exists():
+        return claimed_locations
+
+    for location_file in locations_dir.glob('*.txt'):
+        try:
+            location = location_file.read_text(encoding='utf-8').strip()
+            if location:
+                claimed_locations.add(location)
+        except Exception:
+            # Skip files that can't be read.
+            continue
+
+    return claimed_locations
+
+
+def get_real_parcel_image_locations(data_dir: Path, valid_locations: set) -> set:
+    """Return valid parcel locations that already have real image files.
+
+    Placeholder images are intentionally excluded because uploads may replace
+    them, matching add_parcel_file behavior.
+
+    NOTE: This function must be called while holding DATA_LOCK.
+    """
+    real_image_locations = set()
+    parcels_dir = data_dir / 'parcels'
+
+    if not parcels_dir.exists():
+        return real_image_locations
+
+    for parcel_file in parcels_dir.glob('*.png'):
+        parcel_location = parcel_file.stem.upper()
+        if parcel_location in valid_locations and not is_placeholder_image(parcel_file):
+            real_image_locations.add(parcel_location)
+
+    return real_image_locations
+
+
+def choose_random_available_parcel_location(data_dir: Path) -> Optional[str]:
+    """Choose a random valid parcel location that is not claimed or occupied.
+
+    NOTE: This function must be called while holding DATA_LOCK.
+    """
+    valid_locations = build_valid_parcel_locations()
+    unavailable_locations = (
+        get_claimed_parcel_locations(data_dir) |
+        get_real_parcel_image_locations(data_dir, valid_locations)
+    )
+    available_locations = sorted(valid_locations - unavailable_locations)
+
+    if not available_locations:
+        return None
+
+    return secrets.choice(available_locations)
+
+
 
 def add_parcel_file(parcel_location: str, content: bytes, data_dir: Path) -> bool:
     """Add a parcel image file if none exists (placeholder counts as none).
@@ -576,8 +639,8 @@ def is_placeholder_image(parcel_file: Path) -> bool:
         return False
     
     try:
-        img = Image.open(parcel_file)
-        return img.size == (1, 1)
+        with Image.open(parcel_file) as img:
+            return img.size == (1, 1)
     except Exception:
         # If we can't open it, assume it's not a placeholder
         return False
@@ -744,13 +807,27 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
     if not code:
         return send_json({'status': 'error', 'message': 'Need code'})
     
-    # Get parcel location
-    parcel_location = form_data.get('parcel-location', [''])[0].strip()
-    if not parcel_location:
-        return send_json({'status': 'error', 'message': 'Need location'})
-    
-    # Validate parcel location format
-    if not validate_parcel_location(parcel_location):
+    # Get parcel location mode. The API accepts either an explicit location or
+    # a request for the server to choose one at upload time.
+    parcel_location = form_data.get('parcel-location', [''])[0].strip().upper()
+    auto_assign_location = (
+        form_data.get('auto-assign-location', [''])[0].strip().lower() == 'true'
+    )
+
+    if parcel_location and auto_assign_location:
+        return send_json({
+            'status': 'error',
+            'message': 'Specify either parcel-location or auto-assign-location, not both'
+        })
+
+    if not parcel_location and not auto_assign_location:
+        return send_json({
+            'status': 'error',
+            'message': 'Need parcel-location or auto-assign-location'
+        })
+
+    # Validate explicit parcel location format
+    if parcel_location and not validate_parcel_location(parcel_location):
         return send_json({'status': 'error', 'message': 'Invalid parcel location'})
     
     # Get image data from form
@@ -772,6 +849,18 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
             access_file = data_dir / 'access' / f'{code}.txt'
             if not access_file.exists():
                 return send_json({'status': 'error', 'message': 'Invalid code'})
+
+            if auto_assign_location:
+                location_file = data_dir / 'locations' / f'{code}.txt'
+                if location_file.exists():
+                    parcel_location = location_file.read_text(encoding='utf-8').strip()
+                else:
+                    parcel_location = choose_random_available_parcel_location(data_dir)
+                    if not parcel_location:
+                        return send_json({
+                            'status': 'error',
+                            'message': 'No available parcel locations'
+                        })
             
             # Attempt to claim the parcel location
             claim_status, error_message = claim_parcel(parcel_location, code, data_dir)
