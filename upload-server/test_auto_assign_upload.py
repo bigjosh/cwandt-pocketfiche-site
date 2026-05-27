@@ -25,9 +25,9 @@ sys.modules[SPEC.name] = app
 SPEC.loader.exec_module(app)
 
 
-def make_parcel_png(size=(500, 500)):
+def make_parcel_png(size=(500, 500), fill=1):
     output = io.BytesIO()
-    Image.new('1', size, 1).save(output, format='PNG')
+    Image.new('1', size, fill).save(output, format='PNG')
     return output.getvalue()
 
 
@@ -40,7 +40,7 @@ class AutoAssignUploadTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.data_dir = Path(self.temp_dir.name)
-        for dirname in ('access', 'locations', 'parcels'):
+        for dirname in ('access', 'admins', 'locations', 'parcels'):
             (self.data_dir / dirname).mkdir()
         self.image_data = make_parcel_png()
 
@@ -53,6 +53,13 @@ class AutoAssignUploadTests(unittest.TestCase):
             encoding='utf-8'
         )
         return code
+
+    def create_admin_id(self, admin_id='ADMINID'):
+        (self.data_dir / 'admins' / f'{admin_id}.txt').write_text(
+            'Admin\nnotes',
+            encoding='utf-8'
+        )
+        return admin_id
 
     def upload(self, form_data, code='TESTCODE'):
         self.create_access_code(code)
@@ -148,6 +155,60 @@ class AutoAssignUploadTests(unittest.TestCase):
 
         self.assertEqual(data['status'], 'error')
         self.assertEqual(data['message'], 'No available parcel locations')
+
+    def test_replace_image_replaces_existing_parcel_without_changing_metadata(self):
+        code = self.create_access_code()
+        admin_id = self.create_admin_id()
+        location = 'S19'
+        original_access_content = (self.data_dir / 'access' / f'{code}.txt').read_text(
+            encoding='utf-8'
+        )
+        (self.data_dir / 'locations' / f'{code}.txt').write_text(location, encoding='utf-8')
+        (self.data_dir / 'parcels' / f'{location}.png').write_bytes(make_parcel_png(fill=1))
+
+        data = response_json(app.handle_replace_image(
+            {'admin-id': [admin_id], 'location': [location]},
+            {'image': make_parcel_png(fill=0)},
+            self.data_dir
+        ))
+
+        self.assertEqual(data['status'], 'success')
+        self.assertEqual(data['location'], location)
+        self.assertEqual(
+            (self.data_dir / 'locations' / f'{code}.txt').read_text(encoding='utf-8'),
+            location
+        )
+        self.assertEqual(
+            (self.data_dir / 'access' / f'{code}.txt').read_text(encoding='utf-8'),
+            original_access_content
+        )
+        with Image.open(self.data_dir / 'parcels' / f'{location}.png') as saved_image:
+            self.assertEqual(saved_image.getpixel((0, 0)), 0)
+
+    def test_replace_image_requires_existing_parcel_file(self):
+        admin_id = self.create_admin_id()
+
+        data = response_json(app.handle_replace_image(
+            {'admin-id': [admin_id], 'parcel-location': ['S19']},
+            {'image': make_parcel_png(fill=0)},
+            self.data_dir
+        ))
+
+        self.assertEqual(data['status'], 'error')
+        self.assertEqual(data['message'], 'No image file found')
+
+    def test_replace_image_requires_admin_auth(self):
+        location = 'S19'
+        (self.data_dir / 'parcels' / f'{location}.png').write_bytes(make_parcel_png(fill=1))
+
+        data = response_json(app.handle_replace_image(
+            {'admin-id': ['BADID'], 'parcel-location': [location]},
+            {'image': make_parcel_png(fill=0)},
+            self.data_dir
+        ))
+
+        self.assertEqual(data['status'], 'error')
+        self.assertEqual(data['message'], 'Not authorized')
 
 
 if __name__ == '__main__':

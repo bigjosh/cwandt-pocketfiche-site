@@ -5,7 +5,7 @@ Pocket Fische Upload Server - WSGI Application
 API documented in README.md
 
 Handles three types of commands:
-1. Admin commands: generate-code, get-codes, delete-image, delete-location (requires admin-id parameter)
+1. Admin commands: generate-code, get-codes, delete-image, replace-image, delete-location (requires admin-id parameter)
 2. Backer commands: get-parcel, upload (requires code parameter)
 3. Public commands: get-parcels (no auth required)
 
@@ -711,6 +711,40 @@ def delete_parcel_image(parcel_location: str, data_dir: Path) -> Tuple[bool, Opt
         return (False, 'No image file found')
 
 
+def replace_parcel_image(parcel_location: str, content: bytes, data_dir: Path) -> Tuple[bool, Optional[str]]:
+    """Replace an existing parcel image file with new content.
+
+    NOTE: This function must be called while holding DATA_LOCK.
+
+    This only changes parcels/{parcel_location}.png. It does not modify access
+    files or location assignment files, so existing metadata is preserved.
+    """
+    parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
+    if not parcel_file.exists():
+        return (False, 'No image file found')
+
+    try:
+        parcel_file.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(dir=parcel_file.parent, suffix='.png')
+        temp_path = Path(temp_path)
+
+        try:
+            os.write(fd, content)
+            os.close(fd)
+            temp_path.replace(parcel_file)
+            return (True, None)
+        except Exception:
+            try:
+                os.close(fd)
+            except:
+                pass
+            if temp_path.exists():
+                temp_path.unlink()
+            raise
+    except Exception as e:
+        return (False, f'Failed to replace image: {e}')
+
+
 def handle_delete_image(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]:
     """Handle delete-image command (admin only).
     
@@ -746,6 +780,51 @@ def handle_delete_image(form_data: dict, data_dir: Path) -> Tuple[str, list, byt
             success, error_message = delete_parcel_image(parcel_location, data_dir)
             if success:
                 return send_json({'status': 'success', 'message': 'Image deleted'})
+            else:
+                return send_json({'status': 'error', 'message': error_message})
+    except Timeout:
+        return send_json({'status': 'error', 'message': 'Server busy, try again'})
+
+
+def handle_replace_image(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str, list, bytes]:
+    """Handle replace-image command (admin only).
+
+    Replaces an existing parcel image by location without changing any access or
+    location assignment metadata.
+    """
+    admin_id = form_data.get('admin-id', [''])[0]
+    if not check_admin_auth(admin_id, data_dir):
+        return send_json({'status': 'error', 'message': 'Not authorized', 'code': 401})
+
+    parcel_location = (
+        form_data.get('parcel-location', [''])[0].strip().upper() or
+        form_data.get('location', [''])[0].strip().upper()
+    )
+    if not parcel_location:
+        return send_json({'status': 'error', 'message': 'parcel-location required'})
+
+    if not validate_parcel_location(parcel_location):
+        return send_json({'status': 'error', 'message': 'Invalid parcel location'})
+
+    if 'image' not in file_data:
+        return send_json({'status': 'error', 'message': 'No image provided'})
+
+    image_data = file_data['image']
+    print(f"DEBUG: Received replacement image size from client: {len(image_data)} bytes", file=sys.stderr)
+
+    is_valid, error_message, converted_image_data = validate_and_convert_image(image_data)
+    if not is_valid:
+        return send_json({'status': 'error', 'message': error_message})
+
+    try:
+        with DATA_LOCK.acquire(timeout=30):
+            success, error_message = replace_parcel_image(
+                parcel_location,
+                converted_image_data,
+                data_dir
+            )
+            if success:
+                return send_json({'status': 'success', 'location': parcel_location})
             else:
                 return send_json({'status': 'error', 'message': error_message})
     except Timeout:
@@ -1037,6 +1116,8 @@ def application(environ, start_response):
             status, headers, body = handle_get_parcels(form_data, data_dir)
         elif command == 'delete-image':
             status, headers, body = handle_delete_image(form_data, data_dir)
+        elif command == 'replace-image':
+            status, headers, body = handle_replace_image(form_data, file_data, data_dir)
         elif command == 'delete-location':
             status, headers, body = handle_delete_location(form_data, data_dir)
         elif command == 'upload':
