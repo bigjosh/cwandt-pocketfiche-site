@@ -280,6 +280,20 @@ We will always start at at zoom level that fits the centermost 2x2 tiles in the 
 This script creates a single full-resolution PNG of the entire world by composing all individual parcel PNG files. The output is 19000x19000 pixels (38x38 parcels at 500x500 pixels each). Areas without parcel files are transparent.
 
 
+## `render-disk.py`
+
+Creates a single full-resolution PNG of the **live** disk by reading the current claimed-parcel list and tile images straight from the server (default `https://pf.josh.com`). Unlike `obp.py` — which composes local parcel files — it pulls everything over HTTP, and unlike `pack_parcels.py` it does **no** packing: every parcel is drawn at its real grid location on the canonical gold fiche disk. The output is roughly 19,500x19,500 px (38 parcels across at 500 px each, on a ~19.4 parcel-radius disk).
+
+Usage:
+```
+python render-disk.py                       # full-res gold disk from pf.josh.com
+python render-disk.py --scale 60            # quick small preview
+python render-disk.py --refresh             # re-download cached tiles
+```
+
+Downloaded tiles are cached in `scratch/disk-tiles/` and reused on later runs (`--refresh` re-pulls them, e.g. after an image is replaced on the server). Other flags: `--output-file`, `--cache-dir`, `--scale`, `--mark-missing` (outline claimed parcels whose tile is missing/empty), `--no-compress`, `--parcels-url`, `--tile-base-url`. Install `pyoxipng` for smaller output PNGs; otherwise it falls back to Pillow's compression.
+
+
 ## `incremental_build.py`
 
 Incrementally updates the world to match any new files in parcels. Uses file timestamps to rebuild only out-of-date tiles.
