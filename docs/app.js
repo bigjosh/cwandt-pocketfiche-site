@@ -979,7 +979,9 @@
       
       // Dynamically add the highlight layer to the existing layers control
 
-      const parcelLayerURL = `/?parcel=${highlightParcelId}`;
+      // Relative URL (no leading slash) so this works when the site is hosted
+      // under a subpath, e.g. GitHub Pages project sites.
+      const parcelLayerURL = `?parcel=${highlightParcelId}`;
 
       layersControl.addOverlay(highlightLayer, `Highlight <a href="${parcelLayerURL}">${highlightParcelId}</a>`);
 

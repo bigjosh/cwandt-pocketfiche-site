@@ -89,6 +89,46 @@ So the center 0 in map units is between parcels 31 and 32 (31 is to the left of 
 
 
 
+# Final static site (GitHub Pages)
+
+The campaign is over and the fiche has been fabricated, so the site is now a
+read-only archive served by GitHub Pages straight from `docs/` on `main`
+(repo Settings → Pages → Deploy from branch → `main` / `/docs`).
+
+The parcel tiles in `docs/world/images/` are generated from the final
+fabrication mask (a 19000x19000 1-bit BMP, white = ON dots) rather than from
+live parcel uploads:
+
+```
+python build_world_from_grid.py --grid-file path/to/pocketfiche-grid-recolored-19000-bitmap-final.bmp
+```
+
+This slices the mask into the same zoom 0-6 pyramid layout as `build_world.py`
+(opaque white ON pixels, transparent OFF pixels so the gold disk shows
+through, all-OFF parcels skipped so they 404). The labels pyramid in
+`docs/world/labels/` is reused as-is.
+
+The mask fills the corners between the artwork disk and the square edge of the
+image with a 16x16 halftone screen (41.4% ON) that reads as flat grey, so
+`--clip-radius` (default 19.0 parcels from grid center) drops those parcels and
+lets the bare gold disk show instead. That threshold was verified against this
+mask: all 320 parcels that are nothing but the screen sit at radius >= 19.04,
+and every parcel holding real artwork sits at radius <= 18.83, so the two sets
+do not overlap. The same halftone also appears *inside* real artwork (it is how
+photos were reduced to 1-bit), so never identify filler by the screen pattern
+alone -- a handful of genuine parcels are >70% screen.
+
+After building, compress with:
+
+```
+bin\oxipng docs\world -r -o max --strip all --zopfli
+```
+
+Note that `docs/world` used to be gitignored (it was build output of the live
+system); it is now committed since GitHub Pages serves it. If a server still
+pulls this repo with an old untracked `docs/world` present, delete that local
+copy before pulling.
+
 # Bootstraping from old system
 
 This new system replaces an older one that was based on PHP and a MySQL database. We need to dump the old database and files form that old system to get started. 
