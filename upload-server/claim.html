@@ -31,13 +31,24 @@
       <div class="spinner"></div>
       <p style="text-align: center; margin-top: 20px;">Checking access code...</p>
     </div>
-    
+
+    <!-- Submissions-closed notice (shown now that fabrication has begun) -->
+    <div id="closed-notice" class="hidden">
+      <h1>Submissions are closed.</h1>
+      <p>Fabrication has begun. The file is locked and the images are being etched in gold onto the sapphire disk, so new tiles can no longer be added.</p>
+      <p>Thank you to everyone who placed an image. Every contributor's tile is now on the disk &mdash; you can explore the whole thing in the interactive viewer:</p>
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="/" style="display: inline-block; padding: 14px 32px; background: #00ffff; color: #000; text-decoration: none; font-weight: bold; font-size: 18px; border-radius: 4px;">Explore the disk &rarr;</a>
+      </div>
+    </div>
+
     <!-- Upload form -->
     <div id="upload-form" class="hidden">
       <h2>Step 1: Select Your Image</h2>
       <p style="font-size: 12px; color: #888;">
         Best to upload a 500x500 1-bit black-and-white image, but if you upload something else, we will try our best to convert it for you.<br>
-        <a href="https://pocketfiche.cwandt.com/pf-guide.html" target="_blank" rel="noopener">Hints on how to make a great fiche image</a>
+        Art, sketches, drawings, photos. Something you yourself created. Especially please don't submit copyrighted material.<br>
+        <a href="howto.html" target="_blank" rel="noopener">Hints on how to make a great micro image</a>
       </p>
       <!-- Drop zone -->
       <div id="drop-zone">
@@ -161,10 +172,9 @@
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
     
-    if (!code) {
-      document.body.innerHTML = '<div class="container"><h1>Error</h1><p>No access code provided in URL.</p></div>';
-    }
-    
+    // Submissions are closed. A visitor without a code has nothing to check, so
+    // they just get the closed notice (shown after the elements are defined below).
+
     // Elements
     const uploadHeader = document.getElementById('upload-header');
     const loadingState = document.getElementById('loading-state');
@@ -187,7 +197,17 @@
     const claimedMapSection = document.getElementById('claimed-map-section');
     const claimedParcelMapCanvas = document.getElementById('claimed-parcel-map');
     const invertBtn = document.getElementById('invert-btn');
-    
+    const closedNotice = document.getElementById('closed-notice');
+
+    // Show the "submissions closed" notice and hide every upload-flow state.
+    // The already-uploaded success display (with the disk order) is left alone.
+    function showClosedNotice() {
+      loadingState.classList.add('hidden');
+      uploadHeader.classList.add('hidden');
+      uploadForm.classList.add('hidden');
+      closedNotice.classList.remove('hidden');
+    }
+
     let processedImageBlob = null;  // Store the processed image
     let availableParcels = new Set();  // Store available parcel locations
     let parcelMapData = null;  // Store parcel grid data for click detection
@@ -417,8 +437,8 @@
         loadingState.classList.add('hidden');
         
         if (data.status === 'error') {
-          // Code not found or other error - not authorized
-          document.body.innerHTML = '<div class="container"><h1>Not Authorized</h1><p>Invalid or expired access code.</p><p>Please <a href="https://help.kickstarter.com/hc/en-us/articles/360011239834-How-to-message-a-project-creator">message us on Kickstarter</a> if you think this is in error!</p></div>';
+          // Invalid or expired code. Submissions are closed, so just show the notice.
+          showClosedNotice();
           return;
         } else if (data.status === 'uploaded') {
           // Already uploaded - show success message with image
@@ -436,49 +456,30 @@
           successDisplay.classList.remove('hidden');
           return;
         } else if (data.status === 'claimed') {
-          // Location claimed but image not uploaded yet - show form with pre-filled location
-          const parcelLocation = data['parcel-location'];
-          parcelLocationInput.value = parcelLocation;
-          parcelLocationInput.disabled = true;
-          parcelLocationInput.style.backgroundColor = '#f0f0f0';
-          
-          // Set parcel location in display text
-          const parcelLocationValue = document.getElementById('parcel-location-value');
-          parcelLocationValue.textContent = parcelLocation;
-          parcelLocationValue.style.fontWeight = 'bold';
-          
-          // Add note about pre-assigned location
-          const locationNote = document.createElement('p');
-          locationNote.style.fontSize = '12px';
-          locationNote.style.color = '#666';
-          locationNote.style.marginTop = '5px';
-          locationNote.textContent = `This location has been pre-assigned to you.`;
-          parcelLocationInput.parentElement.appendChild(locationNote);
-          
-          // Show claimed map section with their parcel highlighted
-          claimedMapSection.classList.remove('hidden');
-          drawParcelMap(claimedParcelMapCanvas, parcelLocation);
-          
-          // Mark location as pre-assigned so we don't show location chooser
-          isLocationPreAssigned = true;
-          
-          uploadForm.classList.remove('hidden');
+          // A parcel was reserved but never uploaded before we closed. Nothing to
+          // upload anymore, so show the closed notice.
+          showClosedNotice();
           return;
         } else if (data.status === 'free') {
-          // Valid code, no upload yet - show upload form
-          uploadForm.classList.remove('hidden');
+          // Valid code but nothing was ever uploaded. Show the closed notice.
+          showClosedNotice();
           return;
         }
       } catch (error) {
         console.error('Failed to check upload status:', error);
-        // Network or parsing error - hide loading and show form anyway
-        loadingState.classList.add('hidden');
-        uploadForm.classList.remove('hidden');
+        // Network or parsing error - fall back to the closed notice.
+        showClosedNotice();
       }
     }
-    
-    // Check status when page loads
-    checkUploadStatus();
+
+    // Check status when page loads. Without a code there's nothing to check —
+    // submissions are closed, so show the notice directly.
+    if (code) {
+      checkUploadStatus();
+    } else {
+      loadingState.classList.add('hidden');
+      showClosedNotice();
+    }
     
     // Drop zone click opens file dialog
     dropZone.addEventListener('click', () => {
