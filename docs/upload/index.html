@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="robots" content="noindex" />
+  <title>Submissions are closed &mdash; CW&amp;T Pocket Fiche</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <!--
+    Self-contained on purpose. This page lives on the static viewer host, where
+    there is no external stylesheet and no upload backend, so all styling is
+    inlined and there is no JavaScript. It tells visitors that parcel
+    submissions have closed, points them at the viewer, and still offers the
+    physical disk for sale through a static Stripe payment link.
+  -->
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Courier New', 'Consolas', monospace;
+      background: #1a1a1a;
+      color: #ffffff;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 600px;
+      width: 100%;
+      background: #2a2a2a;
+      border: 2px solid #444;
+      border-radius: 8px;
+      padding: 30px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    }
+    h1 {
+      margin: 0 0 10px 0;
+      font-size: 24px;
+      font-weight: normal;
+      color: #00ffff;
+      text-align: center;
+    }
+    h3 {
+      margin: 10px 0;
+      font-size: 20px;
+      font-weight: bold;
+      text-align: center;
+      color: #ffffff;
+    }
+    h4 {
+      margin: 20px 0 10px 0;
+      font-size: 16px;
+      color: #ffffff;
+    }
+    p {
+      margin: 14px 0;
+      line-height: 1.6;
+      color: #cccccc;
+    }
+    ul {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #cccccc;
+    }
+    a.link { color: #00ffff; }
+    hr {
+      width: 88%;
+      margin: 28px auto;
+      border: none;
+      border-top: 1px solid #00ffff;
+    }
+    .disk-img {
+      width: 200px;
+      display: block;
+      margin: 0 auto 20px auto;
+    }
+    .cta {
+      text-align: center;
+      margin: 30px 0 6px 0;
+    }
+    .btn {
+      display: inline-block;
+      padding: 14px 32px;
+      background: #00ffff;
+      color: #000;
+      text-decoration: none;
+      font-weight: bold;
+      font-size: 18px;
+      border-radius: 4px;
+      transition: background 0.2s ease, transform 0.2s ease;
+    }
+    .btn:hover {
+      background: #00ff00;
+      transform: translateY(-1px);
+    }
+    .fineprint {
+      text-align: center;
+      font-size: 14px;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Submissions are closed.</h1>
+    <p>Fabrication has begun. The file is locked and the images are being etched in gold onto the sapphire disk, so new tiles can no longer be added.</p>
+    <p>Thank you to everyone who placed an image. Every contributor's tile is now on the disk &mdash; you can explore the whole thing in the interactive viewer:</p>
+    <div class="cta">
+      <a class="btn" href="/">Explore the disk &rarr;</a>
+    </div>
+
+    <hr>
+
+    <img class="disk-img" src="disk.png" alt="Sapphire and gold disk">
+
+    <h3>Order the physical disk &mdash; $150</h3>
+
+    <p>Your image lives on the public viewer regardless of what you do next. What you can order here is <strong>the actual object</strong>: a 29mm sapphire-and-gold coin containing every contributor's image, identical to the disk every other person receives.</p>
+
+    <p>It's the smallest, densest, most chemically-stable thing you will probably ever own. Gold doesn't tarnish. Sapphire doesn't scratch. The disk will almost certainly outlast every hard drive, photograph, and printed page you've ever made.</p>
+
+    <div class="cta">
+      <a class="btn" href="https://buy.stripe.com/6oU6oG1Wu0dX3zs0BD7ok08">Claim your disk &mdash; $150 &rarr;</a>
+    </div>
+
+    <p class="fineprint">Ships worldwide.</p>
+
+    <hr>
+
+    <h4>A few honest notes</h4>
+    <ul>
+      <li>The disk is <strong>too small to read with the naked eye.</strong> You can see something is etched on it, but you can't read the individual tiles without a high-magnification microscope. The full-resolution contents always live publicly in <a class="link" href="/">the viewer</a>.</li>
+      <li>Every contributor receives an <strong>identical disk</strong> &mdash; every image, on the same coin.</li>
+      <li>We review every upload before fabrication. Anything we wouldn't want next to our own image gets bounced back with a note.</li>
+    </ul>
+  </div>
+</body>
+</html>
