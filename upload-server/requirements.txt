@@ -8,3 +8,6 @@ Pillow>=10.0.0
 
 # Optional but recommended: Better multipart form handling
 werkzeug>=3.0.0
+
+# Data directory locking
+filelock>=3.13.0

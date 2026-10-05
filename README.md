@@ -89,6 +89,46 @@ So the center 0 in map units is between parcels 31 and 32 (31 is to the left of 
 
 
 
+# Final static site (GitHub Pages)
+
+The campaign is over and the fiche has been fabricated, so the site is now a
+read-only archive served by GitHub Pages straight from `docs/` on `main`
+(repo Settings → Pages → Deploy from branch → `main` / `/docs`).
+
+The parcel tiles in `docs/world/images/` are generated from the final
+fabrication mask (a 19000x19000 1-bit BMP, white = ON dots) rather than from
+live parcel uploads:
+
+```
+python build_world_from_grid.py --grid-file path/to/pocketfiche-grid-recolored-19000-bitmap-final.bmp
+```
+
+This slices the mask into the same zoom 0-6 pyramid layout as `build_world.py`
+(opaque white ON pixels, transparent OFF pixels so the gold disk shows
+through, all-OFF parcels skipped so they 404). The labels pyramid in
+`docs/world/labels/` is reused as-is.
+
+The mask fills the corners between the artwork disk and the square edge of the
+image with a 16x16 halftone screen (41.4% ON) that reads as flat grey, so
+`--clip-radius` (default 19.0 parcels from grid center) drops those parcels and
+lets the bare gold disk show instead. That threshold was verified against this
+mask: all 320 parcels that are nothing but the screen sit at radius >= 19.04,
+and every parcel holding real artwork sits at radius <= 18.83, so the two sets
+do not overlap. The same halftone also appears *inside* real artwork (it is how
+photos were reduced to 1-bit), so never identify filler by the screen pattern
+alone -- a handful of genuine parcels are >70% screen.
+
+After building, compress with:
+
+```
+bin\oxipng docs\world -r -o max --strip all --zopfli
+```
+
+Note that `docs/world` used to be gitignored (it was build output of the live
+system); it is now committed since GitHub Pages serves it. If a server still
+pulls this repo with an old untracked `docs/world` present, delete that local
+copy before pulling.
+
 # Bootstraping from old system
 
 This new system replaces an older one that was based on PHP and a MySQL database. We need to dump the old database and files form that old system to get started. 
@@ -127,10 +167,10 @@ Download....
 https://github.com/oxipng/oxipng
 ```
 
-...and run this comand from inside the docs/tiles directory...
+...and run this command from the project root directory...
 
 ```
-bin\oxipng "docs\*.png" -r -o max --strip all --zopfli
+bin\oxipng "docs\world\**\*.png" -r -o max --strip all --zopfli
 ```
 
 - `-o max` always optimize for maximum compression even if slow
@@ -280,9 +320,30 @@ We will always start at at zoom level that fits the centermost 2x2 tiles in the 
 This script creates a single full-resolution PNG of the entire world by composing all individual parcel PNG files. The output is 19000x19000 pixels (38x38 parcels at 500x500 pixels each). Areas without parcel files are transparent.
 
 
+## `render-disk.py`
+
+Creates a single full-resolution PNG of the **live** disk by reading the current claimed-parcel list and tile images straight from the server (default `https://pf.josh.com`). Unlike `obp.py` — which composes local parcel files — it pulls everything over HTTP, and unlike `pack_parcels.py` it does **no** packing: every parcel is drawn at its real grid location on the canonical gold fiche disk. The output is roughly 19,500x19,500 px (38 parcels across at 500 px each, on a ~19.4 parcel-radius disk).
+
+Usage:
+```
+python render-disk.py                       # full-res gold disk from pf.josh.com
+python render-disk.py --scale 60            # quick small preview
+python render-disk.py --refresh             # re-download cached tiles
+```
+
+Downloaded tiles are cached in `scratch/disk-tiles/` and reused on later runs (`--refresh` re-pulls them, e.g. after an image is replaced on the server). Other flags: `--output-file`, `--cache-dir`, `--scale`, `--mark-missing` (outline claimed parcels whose tile is missing/empty), `--no-compress`, `--parcels-url`, `--tile-base-url`. Install `pyoxipng` for smaller output PNGs; otherwise it falls back to Pillow's compression.
+
+
 ## `incremental_build.py`
 
-Incrementally updates the world to match any new files in parcels. 
+Incrementally updates the world to match any new files in parcels. Uses file timestamps to rebuild only out-of-date tiles.
+
+Usage:
+```
+python incremental_build.py                    # Incremental update
+python incremental_build.py --init             # Initialize/full rebuild (clears output first)
+python incremental_build.py --no-compress      # Skip PNG compression
+``` 
 
 ## `parcel_watcher.py`
 

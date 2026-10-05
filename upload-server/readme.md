@@ -166,6 +166,14 @@ If the admin-id is not authorized, we return a "401: not autorized" error.
 
 If the admin-id is authorized, we return a JSON array of all the access codes in the data directory. Each code includes: code, backer-id, notes, admin-name (who created it), parcel-location (if assigned), and status. Status values: 'free' (no location assigned), 'claimed' (location assigned but image not uploaded yet), 'uploaded' (parcel image file exists in data/parcels/). 
 
+##### command=`replace-image`
+
+This command replaces an existing parcel image without changing any access-code metadata or location assignment files. It takes a POST with `admin-id`, `parcel-location` (or `location`), and the new image in the multipart `image` field.
+
+The image goes through the same server-side validation and conversion as normal uploads: it must be a 500x500 PNG and is saved as an optimized 1-bit PNG. If `parcels/{parcel-location}.png` does not already exist, the command returns JSON `{ "status": "error", "message": "No image file found" }`.
+
+If the replacement succeeds, the response is JSON `{ "status": "success", "location": parcel-location }`.
+
 #### backer commands
 
 ##### command=`get-parcel`

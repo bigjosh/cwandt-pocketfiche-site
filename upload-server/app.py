@@ -5,7 +5,7 @@ Pocket Fische Upload Server - WSGI Application
 API documented in README.md
 
 Handles three types of commands:
-1. Admin commands: generate-code, get-codes, delete-image, delete-location (requires admin-id parameter)
+1. Admin commands: generate-code, get-codes, delete-image, replace-image, delete-location (requires admin-id parameter)
 2. Backer commands: get-parcel, upload (requires code parameter)
 3. Public commands: get-parcels (no auth required)
 
@@ -431,6 +431,69 @@ def handle_get_parcels(form_data: dict, data_dir: Path) -> Tuple[str, list, byte
         return send_json({'status': 'error', 'message': 'Server busy, try again'})
 
 
+def get_claimed_parcel_locations(data_dir: Path) -> set:
+    """Return all parcel locations currently assigned to access codes.
+
+    NOTE: This function must be called while holding DATA_LOCK.
+    """
+    claimed_locations = set()
+    locations_dir = data_dir / 'locations'
+
+    if not locations_dir.exists():
+        return claimed_locations
+
+    for location_file in locations_dir.glob('*.txt'):
+        try:
+            location = location_file.read_text(encoding='utf-8').strip()
+            if location:
+                claimed_locations.add(location)
+        except Exception:
+            # Skip files that can't be read.
+            continue
+
+    return claimed_locations
+
+
+def get_real_parcel_image_locations(data_dir: Path, valid_locations: set) -> set:
+    """Return valid parcel locations that already have real image files.
+
+    Placeholder images are intentionally excluded because uploads may replace
+    them, matching add_parcel_file behavior.
+
+    NOTE: This function must be called while holding DATA_LOCK.
+    """
+    real_image_locations = set()
+    parcels_dir = data_dir / 'parcels'
+
+    if not parcels_dir.exists():
+        return real_image_locations
+
+    for parcel_file in parcels_dir.glob('*.png'):
+        parcel_location = parcel_file.stem.upper()
+        if parcel_location in valid_locations and not is_placeholder_image(parcel_file):
+            real_image_locations.add(parcel_location)
+
+    return real_image_locations
+
+
+def choose_random_available_parcel_location(data_dir: Path) -> Optional[str]:
+    """Choose a random valid parcel location that is not claimed or occupied.
+
+    NOTE: This function must be called while holding DATA_LOCK.
+    """
+    valid_locations = build_valid_parcel_locations()
+    unavailable_locations = (
+        get_claimed_parcel_locations(data_dir) |
+        get_real_parcel_image_locations(data_dir, valid_locations)
+    )
+    available_locations = sorted(valid_locations - unavailable_locations)
+
+    if not available_locations:
+        return None
+
+    return secrets.choice(available_locations)
+
+
 
 def add_parcel_file(parcel_location: str, content: bytes, data_dir: Path) -> bool:
     """Add a parcel image file if none exists (placeholder counts as none).
@@ -576,8 +639,8 @@ def is_placeholder_image(parcel_file: Path) -> bool:
         return False
     
     try:
-        img = Image.open(parcel_file)
-        return img.size == (1, 1)
+        with Image.open(parcel_file) as img:
+            return img.size == (1, 1)
     except Exception:
         # If we can't open it, assume it's not a placeholder
         return False
@@ -648,6 +711,40 @@ def delete_parcel_image(parcel_location: str, data_dir: Path) -> Tuple[bool, Opt
         return (False, 'No image file found')
 
 
+def replace_parcel_image(parcel_location: str, content: bytes, data_dir: Path) -> Tuple[bool, Optional[str]]:
+    """Replace an existing parcel image file with new content.
+
+    NOTE: This function must be called while holding DATA_LOCK.
+
+    This only changes parcels/{parcel_location}.png. It does not modify access
+    files or location assignment files, so existing metadata is preserved.
+    """
+    parcel_file = data_dir / 'parcels' / f'{parcel_location}.png'
+    if not parcel_file.exists():
+        return (False, 'No image file found')
+
+    try:
+        parcel_file.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(dir=parcel_file.parent, suffix='.png')
+        temp_path = Path(temp_path)
+
+        try:
+            os.write(fd, content)
+            os.close(fd)
+            temp_path.replace(parcel_file)
+            return (True, None)
+        except Exception:
+            try:
+                os.close(fd)
+            except:
+                pass
+            if temp_path.exists():
+                temp_path.unlink()
+            raise
+    except Exception as e:
+        return (False, f'Failed to replace image: {e}')
+
+
 def handle_delete_image(form_data: dict, data_dir: Path) -> Tuple[str, list, bytes]:
     """Handle delete-image command (admin only).
     
@@ -683,6 +780,51 @@ def handle_delete_image(form_data: dict, data_dir: Path) -> Tuple[str, list, byt
             success, error_message = delete_parcel_image(parcel_location, data_dir)
             if success:
                 return send_json({'status': 'success', 'message': 'Image deleted'})
+            else:
+                return send_json({'status': 'error', 'message': error_message})
+    except Timeout:
+        return send_json({'status': 'error', 'message': 'Server busy, try again'})
+
+
+def handle_replace_image(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str, list, bytes]:
+    """Handle replace-image command (admin only).
+
+    Replaces an existing parcel image by location without changing any access or
+    location assignment metadata.
+    """
+    admin_id = form_data.get('admin-id', [''])[0]
+    if not check_admin_auth(admin_id, data_dir):
+        return send_json({'status': 'error', 'message': 'Not authorized', 'code': 401})
+
+    parcel_location = (
+        form_data.get('parcel-location', [''])[0].strip().upper() or
+        form_data.get('location', [''])[0].strip().upper()
+    )
+    if not parcel_location:
+        return send_json({'status': 'error', 'message': 'parcel-location required'})
+
+    if not validate_parcel_location(parcel_location):
+        return send_json({'status': 'error', 'message': 'Invalid parcel location'})
+
+    if 'image' not in file_data:
+        return send_json({'status': 'error', 'message': 'No image provided'})
+
+    image_data = file_data['image']
+    print(f"DEBUG: Received replacement image size from client: {len(image_data)} bytes", file=sys.stderr)
+
+    is_valid, error_message, converted_image_data = validate_and_convert_image(image_data)
+    if not is_valid:
+        return send_json({'status': 'error', 'message': error_message})
+
+    try:
+        with DATA_LOCK.acquire(timeout=30):
+            success, error_message = replace_parcel_image(
+                parcel_location,
+                converted_image_data,
+                data_dir
+            )
+            if success:
+                return send_json({'status': 'success', 'location': parcel_location})
             else:
                 return send_json({'status': 'error', 'message': error_message})
     except Timeout:
@@ -744,13 +886,27 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
     if not code:
         return send_json({'status': 'error', 'message': 'Need code'})
     
-    # Get parcel location
-    parcel_location = form_data.get('parcel-location', [''])[0].strip()
-    if not parcel_location:
-        return send_json({'status': 'error', 'message': 'Need location'})
-    
-    # Validate parcel location format
-    if not validate_parcel_location(parcel_location):
+    # Get parcel location mode. The API accepts either an explicit location or
+    # a request for the server to choose one at upload time.
+    parcel_location = form_data.get('parcel-location', [''])[0].strip().upper()
+    auto_assign_location = (
+        form_data.get('auto-assign-location', [''])[0].strip().lower() == 'true'
+    )
+
+    if parcel_location and auto_assign_location:
+        return send_json({
+            'status': 'error',
+            'message': 'Specify either parcel-location or auto-assign-location, not both'
+        })
+
+    if not parcel_location and not auto_assign_location:
+        return send_json({
+            'status': 'error',
+            'message': 'Need parcel-location or auto-assign-location'
+        })
+
+    # Validate explicit parcel location format
+    if parcel_location and not validate_parcel_location(parcel_location):
         return send_json({'status': 'error', 'message': 'Invalid parcel location'})
     
     # Get image data from form
@@ -772,6 +928,18 @@ def handle_upload(form_data: dict, file_data: dict, data_dir: Path) -> Tuple[str
             access_file = data_dir / 'access' / f'{code}.txt'
             if not access_file.exists():
                 return send_json({'status': 'error', 'message': 'Invalid code'})
+
+            if auto_assign_location:
+                location_file = data_dir / 'locations' / f'{code}.txt'
+                if location_file.exists():
+                    parcel_location = location_file.read_text(encoding='utf-8').strip()
+                else:
+                    parcel_location = choose_random_available_parcel_location(data_dir)
+                    if not parcel_location:
+                        return send_json({
+                            'status': 'error',
+                            'message': 'No available parcel locations'
+                        })
             
             # Attempt to claim the parcel location
             claim_status, error_message = claim_parcel(parcel_location, code, data_dir)
@@ -863,6 +1031,16 @@ def parse_multipart(environ) -> Tuple[dict, dict]:
     return (form_data, file_data)
 
 
+def _add_cors(headers):
+    """Add CORS headers so cross-origin clients (e.g. claim.html hosted on
+    a partner domain like southslopenano.com) can call this API."""
+    return list(headers) + [
+        ('Access-Control-Allow-Origin', '*'),
+        ('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'),
+        ('Access-Control-Allow-Headers', 'Content-Type'),
+    ]
+
+
 def application(environ, start_response):
     """WSGI application entry point."""
     try:
@@ -871,7 +1049,16 @@ def application(environ, start_response):
         path = environ.get('PATH_INFO', '/')
         query_string = environ.get('QUERY_STRING', '')
         print(f"DEBUG: {method} {path}{'?' + query_string if query_string else ''}", file=sys.stderr)
-        
+
+        # CORS preflight: respond with allowed methods/headers and no body.
+        if method == 'OPTIONS':
+            headers = _add_cors([
+                ('Content-Length', '0'),
+                ('Access-Control-Max-Age', '86400'),
+            ])
+            start_response('204 No Content', headers)
+            return [b'']
+
         # Check if this is a static file request (no command parameter)
         # This handles requests like /admin.html or /upload.html
         if method == 'GET' and 'command=' not in query_string:
@@ -881,28 +1068,28 @@ def application(environ, start_response):
             # If no file specified or root, don't serve anything
             if not requested_file or requested_file == '/':
                 status, headers, body = send_error('No file specified', 400)
-                start_response(status, headers)
+                start_response(status, _add_cors(headers))
                 return [body]
-            
+
             # Security: Only allow serving files from the app directory
             # No directory traversal allowed
             if '..' in requested_file or requested_file.startswith('/'):
                 status, headers, body = send_error('Invalid file path', 403)
-                start_response(status, headers)
+                start_response(status, _add_cors(headers))
                 return [body]
-            
+
             # Get the directory where this script is located
             app_dir = Path(__file__).parent
             file_path = app_dir / requested_file
-            
+
             # Serve the static file
             status, headers, body = serve_static_file(file_path)
-            start_response(status, headers)
+            start_response(status, _add_cors(headers))
             return [body]
-        
+
         # API request - get data directory
         data_dir = get_data_dir()
-        
+
         # Parse form data
         if method == 'POST':
             form_data, file_data = parse_multipart(environ)
@@ -912,12 +1099,12 @@ def application(environ, start_response):
             file_data = {}
         else:
             status, headers, body = send_error('Method not allowed', 405)
-            start_response(status, headers)
+            start_response(status, _add_cors(headers))
             return [body]
-        
+
         # Get command parameter
         command = form_data.get('command', [''])[0].strip()
-        
+
         # Route to appropriate handler
         if command == 'generate-code':
             status, headers, body = handle_generate_code(form_data, data_dir)
@@ -929,25 +1116,27 @@ def application(environ, start_response):
             status, headers, body = handle_get_parcels(form_data, data_dir)
         elif command == 'delete-image':
             status, headers, body = handle_delete_image(form_data, data_dir)
+        elif command == 'replace-image':
+            status, headers, body = handle_replace_image(form_data, file_data, data_dir)
         elif command == 'delete-location':
             status, headers, body = handle_delete_location(form_data, data_dir)
         elif command == 'upload':
             status, headers, body = handle_upload(form_data, file_data, data_dir)
         else:
             status, headers, body = send_error(f'Unknown command: {command}', 400)
-        
+
         # Send response
-        start_response(status, headers)
+        start_response(status, _add_cors(headers))
         return [body]
-        
+
     except Exception as e:
         # Catch all unhandled exceptions
         print(f"ERROR: Unhandled exception: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
-        
+
         status, headers, body = send_error(f'Internal server error: {str(e)}', 500)
-        start_response(status, headers)
+        start_response(status, _add_cors(headers))
         return [body]
 
 

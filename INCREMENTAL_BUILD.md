@@ -33,8 +33,8 @@ python incremental_build.py
 # Specify custom directories
 python incremental_build.py --parcels-dir parcels --output-dir docs/world
 
-# Force full rebuild (clears all tiles)
-python incremental_build.py --force
+# Initialize/force full rebuild (clears all tiles)
+python incremental_build.py --init
 ```
 
 ## How Timestamps Work
@@ -45,8 +45,9 @@ The system uses `st_mtime` (modification time) from the file system:
 - Preserved when files are copied (usually)
 - Compared using simple `>` operator
 
-### Force Rebuild
-The `--force` flag:
+### Initialize/Force Rebuild
+The `--init` flag:
 - Deletes entire output directory
-- Runs full build via `build_world.py`
+- Rebuilds label tiles at all zoom levels
+- Subsequent incremental build will rebuild all image tiles
 

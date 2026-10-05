@@ -60,45 +60,48 @@ Phase 2: Zoom Levels 5-0
 
 ```
 incremental_build.py     ← Rewritten (no git/hash/cache)
-amplify.yml              ← Simplified
-requirements.txt         ← Just Pillow
+parcel_watcher.py        ← Watches parcels dir and triggers builds
 .gitignore              ← No .build_cache needed
 INCREMENTAL_BUILD.md    ← Full documentation
 ```
 
+Note: Requires Pillow (`pip install Pillow`) and optionally pyoxipng (`pip install pyoxipng`) for compression.
+
 ## Usage Examples
 
 ```bash
-# First run - builds everything
+# First run - builds everything (after --init)
 $ python incremental_build.py
-Phase 1: Zoom level 6 (checking parcel timestamps)...
-  Rebuilt: 80, Up-to-date: 0
-Phase 2: Zoom levels 5-0...
-  ...
-✅ Incremental build complete! (9,000 tiles rebuilt)
+🔨 Phase 1: Zoom level 6 ...
+   Processed: 4096, Rebuilt: 80, Up-to-date: 4016
+🔨 Zoom level 5...
+   Processed: 1024, Rebuilt: 64, Up-to-date: 960
+...
+🗜️  Phase 3: Compressing changed tiles...
 
 # Second run - nothing changed
 $ python incremental_build.py
-Phase 1: Zoom level 6 (checking parcel timestamps)...
-  Rebuilt: 0, Up-to-date: 80
-✅ All tiles are up-to-date!
+🔨 Phase 1: Zoom level 6 ...
+   Processed: 4096, Rebuilt: 0, Up-to-date: 4096
+🔨 Zoom level 5...
+   Processed: 1024, Rebuilt: 0, Up-to-date: 1024
+...
 
 # After modifying a parcel
-$ touch parcels/tile-H4.png
+$ touch parcels/H4.png
 $ python incremental_build.py
-Phase 1: Zoom level 6 (checking parcel timestamps)...
-  ✅ tile-H4.png -> tile (7, 45)
-  Rebuilt: 1, Up-to-date: 79
-Phase 2: Zoom level 5...
-  Images - Rebuilt: 1, Up-to-date: 15
-  Labels - Rebuilt: 1, Up-to-date: 15
+🔨 Phase 1: Zoom level 6 ...
+   Processed: 4096, Rebuilt: 1, Up-to-date: 4095
+🔨 Zoom level 5...
+   Processed: 1024, Rebuilt: 1, Up-to-date: 1023
 ...
-✅ Incremental build complete! (14 tiles rebuilt)
+🗜️  Phase 3: Compressing changed tiles...
 
-# Force full rebuild
-$ python incremental_build.py --force
-🔄 Force rebuild requested - regenerating all tiles
-✅ Full build complete
+# Initialize/force full rebuild
+$ python incremental_build.py --init
+🔨 Purging output directory...
+🏷️  Building labels tree...
+✅ Labels tree complete
 ```
 
 ## Timestamp Logic
@@ -147,10 +150,10 @@ On the next build:
 
 ### What Was Added
 - ✅ `get_mtime()` - Simple timestamp getter
-- ✅ `is_tile_out_of_date_zoom_6()` - Check parcel vs tile
-- ✅ `is_tile_out_of_date()` - Check children vs parent
-- ✅ `get_child_tile_paths()` - Get dependency paths
-- ✅ Two-phase build process
+- ✅ `is_file_newer_than()` - Check if source is newer than destination
+- ✅ `incremental_update_image_tile_at_maxzoom()` - Check parcel vs tile at zoom 6
+- ✅ `incremental_update_tile_at_zoom()` - Check children vs parent for lower zooms
+- ✅ Two-phase build process with compression pass
 
 ### Behavior Changes
 - **Before**: Detected changes via git diff → hash comparison → cache
@@ -172,14 +175,14 @@ python incremental_build.py
 
 ✅ Modify one parcel
 ```bash
-touch parcels/tile-A1.png
+touch parcels/A1.png
 python incremental_build.py
 # Should rebuild ~14 tiles (~5s)
 ```
 
-✅ Force rebuild
+✅ Initialize/force rebuild
 ```bash
-python incremental_build.py --force
+python incremental_build.py --init
 # Should clear and rebuild all (~60s)
 ```
 
